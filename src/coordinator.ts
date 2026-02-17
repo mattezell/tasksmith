@@ -5,7 +5,7 @@
  * concurrently and manages graceful shutdown.
  */
 
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { writeFileSync } from "node:fs";
 import yaml from "js-yaml";
 import chalk from "chalk";
@@ -20,6 +20,11 @@ import type {
   ForgeConfig, OutboundCommsProvider, InboundCommsProvider,
   MemoryProvider, InboundMessage, Task,
 } from "./types.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
 
 export class Coordinator {
   private workspace: string;
@@ -189,21 +194,25 @@ export class Coordinator {
     const outNames = this.outbound.map(p => p.name).join(", ") || "none";
     const inNames = this.inbound.map(p => p.name).join(", ") || "file_drop only";
     const memNames = this.memory.map(p => p.name).join(", ");
+        
+    const W = 54; // inner width between the ║ bars
+    const line = (content: string) =>
+      `${chalk.blue("║")}${content.padEnd(W)}${chalk.blue("║")}`;
+    const title = `TaskSmith v${pkg.version}`;
 
     console.log(`
-${chalk.blue("╔══════════════════════════════════════════════════════╗")}
-${chalk.blue("║")}           ${chalk.bold("TaskSmith v0.3.0")}                     ${chalk.blue("║")}
-${chalk.blue("╠══════════════════════════════════════════════════════╣")}
-${chalk.blue("║")}  Workspace:  ${this.workspace.padEnd(38)} ${chalk.blue("║")}
-${chalk.blue("║")}  Inbox:      ${this.engine.inbox.padEnd(38)} ${chalk.blue("║")}
-${chalk.blue("║")}  Outbound:   ${outNames.padEnd(38)} ${chalk.blue("║")}
-${chalk.blue("║")}  Inbound:    ${inNames.padEnd(38)} ${chalk.blue("║")}
-${chalk.blue("║")}  Memory:     ${memNames.padEnd(38)} ${chalk.blue("║")}
-${chalk.blue("║")}                                                      ${chalk.blue("║")}
-${chalk.blue("║")}  Press Ctrl+C to stop                                ${chalk.blue("║")}
-${chalk.blue("╚══════════════════════════════════════════════════════╝")}
-`);
-
+    ${chalk.blue("╔" + "═".repeat(W) + "╗")}
+    ${line(title.padStart((W + title.length) / 2).padEnd(W))}
+    ${chalk.blue("╠" + "═".repeat(W) + "╣")}
+    ${line(`  Workspace:  ${this.workspace}`)}
+    ${line(`  Inbox:      ${this.engine.inbox}`)}
+    ${line(`  Outbound:   ${outNames}`)}
+    ${line(`  Inbound:    ${inNames}`)}
+    ${line(`  Memory:     ${memNames}`)}
+    ${line("")}
+    ${line("  Press Ctrl+C to stop")}
+    ${chalk.blue("╚" + "═".repeat(W) + "╝")}
+    `);
     // Start inbox scanner (polling — belt + suspenders with chokidar in FileDropProvider)
     this.scanInterval = setInterval(async () => {
       if (!this.shutdownRequested) {
@@ -230,18 +239,22 @@ ${chalk.blue("╚═════════════════════
       const shutdown = async () => {
         if (this.shutdownRequested) return;
         this.shutdownRequested = true;
-        console.log(chalk.yellow("\n  Shutting down... Giving providers up to 10 seconds to clean up before force exit."));
+        console.log(chalk.yellow("\n  Shutting down..."));
+        console.log(chalk.yellow("\n  10 seconds before force exit..."));
 
         const forceExit = setTimeout(() => process.exit(0), 10000);
 
-        if (this.scanInterval) clearInterval(this.scanInterval);
-        await this.pluginManager.executeHooks("onShutdown");
-        await this.pluginManager.deactivateAll();
-        for (const p of this.inbound) {
-          try { await p.stop(); } catch { /* */ }
-        }
-        clearTimeout(forceExit);
+        try {
+          if (this.scanInterval) clearInterval(this.scanInterval);
+          await this.pluginManager.executeHooks("onShutdown");
+          await this.pluginManager.deactivateAll();
+          for (const p of this.inbound) {
+            try { await p.stop(); } catch { /* */ }
+          }
+          clearTimeout(forceExit);          
+        } catch (e) { console.error("[coordinator] shutdown error:", e); }
         resolve();
+        process.exit(0);
       };
 
       process.on("SIGINT", shutdown);
