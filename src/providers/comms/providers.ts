@@ -242,7 +242,7 @@ export class DiscordBotProvider implements InboundCommsProvider {
         ],
       });
 
-      this.client.on("ready", () => {
+      this.client.once("clientReady", () => {
         console.log(`[discord_bot] Connected as ${this.client.user?.tag}`);
       });
 

@@ -230,7 +230,9 @@ ${chalk.blue("╚═════════════════════
       const shutdown = async () => {
         if (this.shutdownRequested) return;
         this.shutdownRequested = true;
-        console.log(chalk.yellow("\n  Shutting down..."));
+        console.log(chalk.yellow("\n  Shutting down... Giving providers up to 10 seconds to clean up before force exit."));
+
+        const forceExit = setTimeout(() => process.exit(0), 10000);
 
         if (this.scanInterval) clearInterval(this.scanInterval);
         await this.pluginManager.executeHooks("onShutdown");
@@ -238,6 +240,7 @@ ${chalk.blue("╚═════════════════════
         for (const p of this.inbound) {
           try { await p.stop(); } catch { /* */ }
         }
+        clearTimeout(forceExit);
         resolve();
       };
 
