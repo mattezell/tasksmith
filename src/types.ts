@@ -139,8 +139,15 @@ export interface ProviderEntry {
   config: Record<string, unknown>;
 }
 
+export interface WorkspaceConfig {
+  projectsDir: string;      // where projects live (default: <workspace>/projects)
+  templatesDir: string;     // additional template search path
+  globalConfigDir: string;  // override global config location (default: ~/.tasksmith)
+}
+
 export interface ForgeConfig {
   system: { name: string; version: string; logLevel: string };
+  workspace: WorkspaceConfig;
   communication: {
     outbound: ProviderEntry[];
     inbound: ProviderEntry[];

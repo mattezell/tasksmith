@@ -1,0 +1,24 @@
+# Real-world example: Refactor a database layer
+# Uses the ralph-loop to iterate until tests pass
+
+template: ralph-loop
+prompt: |
+  Refactor the database layer in src/db/ to use the repository pattern.
+  
+  Current state: Raw SQL queries scattered across route handlers.
+  Target state: Repository classes with typed methods for each entity.
+  
+  Steps:
+  1. Create src/db/repositories/ directory
+  2. Create UserRepository, PostRepository, CommentRepository
+  3. Move all raw queries into repository methods
+  4. Update route handlers to use repositories
+  5. Ensure all existing tests still pass
+  6. Add unit tests for each repository method
+  
+project: my-blog
+model: opus
+priority: normal
+max_iterations: 8
+params:
+  validation_command: "npm test"

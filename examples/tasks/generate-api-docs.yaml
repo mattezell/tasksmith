@@ -1,0 +1,21 @@
+# Real-world example: Generate API documentation
+# Uses the doc_gen template (no ralph loop needed)
+
+template: doc_gen
+prompt: |
+  Generate comprehensive API documentation for all endpoints in src/routes/.
+  
+  For each endpoint, document:
+  - HTTP method and path
+  - Request body schema (if applicable)
+  - Query parameters
+  - Response format with example JSON
+  - Error codes and their meanings
+  - Authentication requirements
+  
+  Output as a single DOCS.md file in the project root.
+  Follow the existing style in README.md.
+  
+project: my-api
+model: sonnet
+priority: low

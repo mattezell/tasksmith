@@ -1,0 +1,21 @@
+# Real-world example: Fix a specific flaky test
+
+template: bug_hunt
+prompt: |
+  The test "should handle concurrent WebSocket connections" in 
+  tests/websocket.test.ts is flaky — it passes ~80% of the time.
+  
+  Investigate and fix. Common causes of flaky WS tests:
+  - Race conditions in connection setup/teardown
+  - Shared state between test cases
+  - Insufficient timeouts for CI environments
+  - Port conflicts
+  
+  The fix should make it pass 100% of the time on CI.
+  Run the test 10 times to verify: `for i in {1..10}; do npm test -- --grep WebSocket; done`
+  
+project: realtime-app
+model: sonnet
+params:
+  validation_command: "npm test -- --grep WebSocket"
+  max_retries: 10

@@ -1,0 +1,11 @@
+{
+  "template": "ralph-loop",
+  "prompt": "Add a health check endpoint at GET /health that returns {\"status\": \"ok\", \"uptime\": <seconds>}. Include a test.",
+  "project": "my-api",
+  "model": "sonnet",
+  "priority": "normal",
+  "max_iterations": 3,
+  "params": {
+    "validation_command": "npm test -- --grep health"
+  }
+}

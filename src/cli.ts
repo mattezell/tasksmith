@@ -15,11 +15,12 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { execSync } from "node:child_process";
 import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 
-import { resolveWorkspace, loadConfig } from "./config.js";
+import { resolveWorkspace, loadConfig, workspaceInfo, initProjectLocal, listTemplates, resolveProjectsDir, isTaskFile } from "./config.js";
 import type { MemoryProvider } from "./types.js";
 
 const program = new Command();
@@ -27,7 +28,7 @@ const program = new Command();
 program
   .name("tasksmith")
   .description("Lightweight Agent Orchestration Built on Claude Code CLI")
-  .version("0.3.0")
+  .version("0.3.1")
   .option("--dir <path>", "Workspace directory");
 
 // ── RUN ────────────────────────────────────────────────────────────
@@ -122,11 +123,17 @@ program
   .action(async () => {
     const ws = resolveWorkspace(program.opts().dir);
     const config = loadConfig(ws);
+    const info = workspaceInfo(ws);
+
+    console.log(chalk.bold("\n  Workspace"));
+    console.log(`    Mode         ${chalk.cyan(info.mode)}`);
+    console.log(`    Path         ${info.path}`);
+    console.log(`    Projects     ${info.projectsDir}`);
 
     console.log(chalk.bold("\n  Task Queue"));
     for (const [label, dir] of [["Pending", "inbox"], ["Active", "active"], ["Completed", "completed"], ["Failed", "failed"]] as const) {
       const d = join(ws, "tasks", dir);
-      const count = existsSync(d) ? readdirSync(d).filter(f => f.endsWith(".yaml")).length : 0;
+      const count = existsSync(d) ? readdirSync(d).filter(f => isTaskFile(f)).length : 0;
       const color = dir === "active" ? chalk.yellow : dir === "failed" ? chalk.red : dir === "completed" ? chalk.green : chalk.white;
       console.log(`    ${label.padEnd(12)} ${color(String(count))}`);
     }
@@ -291,6 +298,97 @@ pluginCmd
   .action(async (name: string) => {
     const { scaffoldPlugin } = await import("./plugins.js");
     scaffoldPlugin(name, process.cwd());
+  });
+
+// ── INIT (project-local) ───────────────────────────────────────────
+
+program
+  .command("init")
+  .description("Initialize TaskSmith in the current project (creates .tasksmith/)")
+  .action(async () => {
+    const cwd = process.cwd();
+    const tsDir = initProjectLocal(cwd);
+    console.log(chalk.green("\n  Initialized TaskSmith in current project\n"));
+    console.log(`  Config:     ${join(tsDir, "config", "tasksmith.yaml")}`);
+    console.log(`  Templates:  ${join(tsDir, "templates/")}`);
+    console.log(`  Directives: ${join(tsDir, "directives/")}`);
+    console.log(`  Task inbox: ${join(tsDir, "tasks", "inbox/")}`);
+    console.log();
+    console.log(`  ${chalk.dim("Global config at ~/.tasksmith is inherited.")}`);
+    console.log(`  ${chalk.dim("Project-local settings override global ones.")}`);
+    console.log(`  ${chalk.dim("Drop task YAML or JSON files in tasks/inbox/ to run them.")}\n`);
+  });
+
+// ── TEMPLATES ──────────────────────────────────────────────────────
+
+program
+  .command("templates")
+  .description("List all available templates and where they come from")
+  .action(async () => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const config = loadConfig(ws);
+    const templates = listTemplates(ws, config);
+
+    if (templates.length === 0) {
+      console.log(chalk.dim("\n  No templates found.\n"));
+      return;
+    }
+
+    console.log(chalk.bold(`\n  Available Templates (${templates.length})\n`));
+    const sourceColors: Record<string, (s: string) => string> = {
+      "project-local": chalk.magenta,
+      "workspace": chalk.cyan,
+      "custom": chalk.yellow,
+      "global": chalk.blue,
+      "built-in": chalk.dim,
+    };
+    for (const t of templates) {
+      const colorFn = sourceColors[t.source] || chalk.white;
+      console.log(`    ${chalk.green("●")} ${t.name.padEnd(24)} ${colorFn(t.source.padEnd(16))} ${chalk.dim(t.path)}`);
+    }
+    console.log();
+    console.log(chalk.dim("  Priority: project-local > workspace > custom > global > built-in"));
+    console.log(chalk.dim("  Override a built-in by placing your version in .tasksmith/templates/ or ~/.tasksmith/templates/\n"));
+  });
+
+// ── INFO ───────────────────────────────────────────────────────────
+
+program
+  .command("info")
+  .description("Show workspace resolution and config details")
+  .action(async () => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const config = loadConfig(ws);
+    const info = workspaceInfo(ws);
+
+    console.log(chalk.bold("\n  Workspace Resolution\n"));
+    console.log(`    Mode:          ${chalk.cyan(info.mode)}`);
+    console.log(`    Workspace:     ${info.path}`);
+    console.log(`    Projects dir:  ${info.projectsDir}`);
+    console.log(`    Global config: ${join(homedir(), ".tasksmith")}`);
+
+    if (config.workspace?.templatesDir) {
+      console.log(`    Extra templates: ${config.workspace.templatesDir}`);
+    }
+
+    console.log(chalk.bold("\n  Resolution Order"));
+    console.log(`    1. ${chalk.dim("--dir flag")}          ${program.opts().dir || chalk.dim("(not set)")}`);
+    console.log(`    2. ${chalk.dim("TASKSMITH_DIR env")}   ${process.env.TASKSMITH_DIR || chalk.dim("(not set)")}`);
+    console.log(`    3. ${chalk.dim("Project-local")}      ${existsSync(join(process.cwd(), ".tasksmith")) ? chalk.green("found .tasksmith/") : chalk.dim("(not found)")}`);
+    console.log(`    4. ${chalk.dim("Global fallback")}    ~/.tasksmith`);
+
+    console.log(chalk.bold("\n  Template Search Paths"));
+    const searchPaths = [
+      [".tasksmith/templates/", "project-local"],
+      [join(ws, "templates/"), "workspace"],
+      ...(config.workspace?.templatesDir ? [[config.workspace.templatesDir, "custom"]] : []),
+      [join(homedir(), ".tasksmith", "templates/"), "global"],
+      ["<install>/templates/", "built-in"],
+    ];
+    for (const [path, label] of searchPaths) {
+      console.log(`    ${chalk.dim(`[${label}]`.padEnd(18))} ${path}`);
+    }
+    console.log();
   });
 
 // ── PARSE & RUN ────────────────────────────────────────────────────

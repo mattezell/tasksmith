@@ -15,9 +15,10 @@ import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 import type {
   Task, TaskStatus, Priority, Notification, MemoryEntry,
-  OutboundCommsProvider, MemoryProvider,
+  OutboundCommsProvider, MemoryProvider, ForgeConfig,
 } from "./types.js";
 import type { MarkdownMemoryProvider } from "./providers/memory/providers.js";
+import { resolveTemplate, isTaskFile, parseTaskFile } from "./config.js";
 import type { SessionArchiver } from "./providers/memory/providers.js";
 
 export class TaskEngine {
@@ -87,14 +88,11 @@ export class TaskEngine {
       }
     }
 
-    // Template prompt
-    const templateDir = join(this.workspace, "templates", task.template.replace(/-/g, "_"));
-    // Also check npm-installed templates
-    const builtinDir = join(import.meta.dirname ?? __dirname, "templates", task.template.replace(/-/g, "_"));
-    let promptFile = join(templateDir, "PROMPT.md");
-    if (!existsSync(promptFile)) promptFile = join(builtinDir, "PROMPT.md");
+    // Template prompt (searches project-local, workspace, global, built-in)
+    const templateDir = resolveTemplate(task.template, this.workspace, this.config as any);
 
-    if (existsSync(promptFile)) {
+    if (templateDir) {
+      const promptFile = join(templateDir, "PROMPT.md");
       let tp = readFileSync(promptFile, "utf-8");
       tp = tp.replace(/\{\{prompt\}\}/g, task.prompt);
       tp = tp.replace(/\{\{project\}\}/g, task.project);
@@ -292,8 +290,8 @@ export class TaskEngine {
   // ── Task Parsing ───────────────────────────────────────────────────
 
   parseTask(content: string, sourceFile = ""): Task {
-    const data = yaml.load(content) as Record<string, any>;
-    if (!data || typeof data !== "object") throw new Error("Task must be a YAML mapping");
+    const data = parseTaskFile(content, sourceFile || "task.yaml");
+    if (!data || typeof data !== "object") throw new Error("Task must be a YAML or JSON mapping");
 
     const now = new Date().toISOString();
     const id = data.id || `task-${now.slice(0, 19).replace(/[T:]/g, "").replace(/-/g, "")}-${uuidv4().slice(0, 6)}`;
@@ -341,7 +339,7 @@ export class TaskEngine {
 
   async scanInbox(): Promise<void> {
     const files = readdirSync(this.inbox)
-      .filter(f => f.endsWith(".yaml") || f.endsWith(".yml"))
+      .filter(f => isTaskFile(f))
       .filter(f => !f.startsWith("."))
       .sort();
 

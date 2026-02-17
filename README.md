@@ -570,3 +570,101 @@ await coordinator.run();
 ## License
 
 MIT
+
+## Workspace Modes
+
+TaskSmith supports three workspace modes:
+
+### Global (default)
+```bash
+tasksmith setup   # creates ~/.tasksmith/
+tasksmith run     # uses ~/.tasksmith/
+```
+
+All config, templates, memory, and tasks live in `~/.tasksmith/`.
+
+### Project-Local
+```bash
+cd ~/code/my-api
+tasksmith init    # creates .tasksmith/ in current directory
+tasksmith run     # auto-detects .tasksmith/, uses project-local config
+```
+
+Project-local settings override global settings. Great for per-project templates, conventions, and task queues.
+
+### Custom Workspace
+```bash
+tasksmith run --dir /path/to/workspace
+# or
+export TASKSMITH_DIR=/path/to/workspace
+tasksmith run
+```
+
+### Workspace Override
+
+By default, projects live inside the workspace (`~/.tasksmith/projects/`). Override this:
+
+```yaml
+# ~/.tasksmith/config/tasksmith.yaml
+workspace:
+  projectsDir: ~/code              # your projects live here
+  templatesDir: ~/my-templates     # additional template search path
+```
+
+## Template System
+
+Templates are resolved in priority order:
+
+1. **Project-local:** `.tasksmith/templates/` (in current project)
+2. **Workspace:** `<workspace>/templates/`
+3. **Custom:** path from `workspace.templatesDir` config
+4. **Global:** `~/.tasksmith/templates/`
+5. **Built-in:** shipped with the npm package
+
+Override any built-in template by placing your version higher in the chain:
+
+```bash
+# Override ralph_loop for this project only
+mkdir -p .tasksmith/templates/ralph_loop
+cp "$(npm root -g)/tasksmith-cli/templates/ralph_loop/PROMPT.md" .tasksmith/templates/ralph_loop/
+vim .tasksmith/templates/ralph_loop/PROMPT.md
+```
+
+List all available templates:
+```bash
+tasksmith templates
+```
+
+## Task File Formats
+
+TaskSmith supports both YAML and JSON task files:
+
+```yaml
+# task.yaml
+template: ralph-loop
+prompt: "Add input validation to /users"
+project: my-api
+model: sonnet
+params:
+  validation_command: "npm test"
+```
+
+```json
+{
+  "template": "ralph-loop",
+  "prompt": "Add input validation to /users",
+  "project": "my-api",
+  "model": "sonnet",
+  "params": { "validation_command": "npm test" }
+}
+```
+
+Drop either format in `tasks/inbox/`. Both are processed identically.
+
+## New CLI Commands
+
+```bash
+tasksmith init        # Initialize project-local config (.tasksmith/)
+tasksmith templates   # List all templates with sources
+tasksmith info        # Show workspace resolution details
+```

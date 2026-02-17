@@ -1,0 +1,21 @@
+# Real-world example: Automated code review
+
+template: code_review
+prompt: |
+  Review the changes in the current git diff (staged + unstaged).
+  
+  Focus on:
+  - Security vulnerabilities (SQL injection, XSS, auth bypass)
+  - Performance issues (N+1 queries, unnecessary re-renders)
+  - Error handling gaps
+  - Missing edge cases
+  - Code style violations per CONVENTIONS.md
+  
+  Output a structured review with severity levels:
+  🔴 Critical — must fix before merge
+  🟡 Warning — should fix, not blocking
+  🔵 Suggestion — nice to have
+  
+project: my-api
+model: opus
+priority: normal

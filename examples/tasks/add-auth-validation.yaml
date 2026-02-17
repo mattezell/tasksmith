@@ -1,0 +1,21 @@
+# Real-world example: Add input validation to an auth endpoint
+# Drop this in ~/.tasksmith/tasks/inbox/ or .tasksmith/tasks/inbox/
+
+template: ralph-loop
+prompt: |
+  Add comprehensive input validation to the POST /api/auth/login endpoint.
+  
+  Requirements:
+  - Validate email format using a regex
+  - Enforce password minimum 8 chars, at least 1 uppercase, 1 number
+  - Return 400 with descriptive error messages for invalid input
+  - Add rate limiting: max 5 attempts per IP per 15 minutes
+  - Write tests for all validation cases
+  
+project: my-api
+model: sonnet
+priority: high
+max_iterations: 5
+params:
+  validation_command: "npm test -- --grep auth"
+  working_dir: "./src/routes"
