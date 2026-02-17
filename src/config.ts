@@ -33,7 +33,7 @@ import type { ForgeConfig } from "./types.js";
 // =============================================================================
 
 export const DEFAULT_CONFIG: ForgeConfig = {
-  system: { name: "TaskSmith", version: "0.4.0", logLevel: "INFO" },
+  system: { name: "TaskSmith", version: "0.5.0", logLevel: "INFO" },
   workspace: {
     projectsDir: "",        // if empty, defaults to <workspace>/projects
     templatesDir: "",       // additional template search path

@@ -274,23 +274,43 @@ pluginCmd
   .description("List installed and discovered plugins")
   .action(async () => {
     const { PluginManager } = await import("./plugins.js");
+    const { listBundledPlugins, BUNDLED_PLUGIN_INFO } = await import("./plugins/bundled/index.js");
     const ws = resolveWorkspace(program.opts().dir);
     const config = loadConfig(ws);
     const pm = new PluginManager(ws, config as any);
-    const discovered = await pm.discover();
 
-    if (discovered.length === 0) {
-      console.log(chalk.dim("\n  No plugins found.\n"));
-      console.log(`  Install one: ${chalk.bold("npm install tasksmith-plugin-<name>")}`);
-      console.log(`  Create one:  ${chalk.bold("tasksmith plugin create <name>")}\n`);
-    } else {
-      console.log(chalk.bold(`\n  Plugins Found (${discovered.length})\n`));
-      for (const name of discovered) {
-        console.log(`    ${chalk.green("●")} ${name}`);
-      }
-      console.log();
+    // Bundled (official) plugins
+    const bundled = listBundledPlugins();
+    const enabledPlugins = ((config as any).plugins || []) as Array<string | Record<string, unknown>>;
+    const enabledNames = new Set(enabledPlugins.map((e: any) => typeof e === "string" ? e : (e.name || "")));
+
+    console.log(chalk.bold(`\n  Official Plugins (bundled)\n`));
+    for (const name of bundled) {
+      const enabled = enabledNames.has(name);
+      const info = BUNDLED_PLUGIN_INFO[name];
+      const icon = enabled ? chalk.green("\u25cf") : chalk.dim("\u25cb");
+      const status = enabled ? chalk.green("enabled") : chalk.dim("disabled");
+      console.log(`    ${icon} ${name.padEnd(12)} ${status.padEnd(18)} ${chalk.dim(info?.description || "")}`);
     }
+
+    // npm-discovered plugins
+    const discovered = await pm.discover();
+    if (discovered.length > 0) {
+      console.log(chalk.bold(`\n  Community Plugins (npm)\n`));
+      for (const name of discovered) {
+        console.log(`    ${chalk.green("\u25cf")} ${name}`);
+      }
+    }
+
+    console.log(chalk.bold("\n  Enable a plugin:"));
+    console.log(chalk.dim("    Add to plugins: list in ~/.tasksmith/config/tasksmith.yaml\n"));
+    console.log(chalk.dim("    plugins:"));
+    console.log(chalk.dim("      - github"));
+    console.log(chalk.dim("      - name: metrics"));
+    console.log(chalk.dim("        config:"));
+    console.log(chalk.dim("          retainDays: 90\n"));
   });
+
 
 pluginCmd
   .command("create <name>")

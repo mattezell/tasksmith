@@ -5,6 +5,23 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-02-17
+
+### Added
+- **Official bundled plugins** — ship with tasksmith-cli, no separate npm install needed
+  - **github** — GitHub Issues/PR integration: auto-create issues on task failure, comment results on linked issues, close issues on task success. Uses GitHub REST API with `GITHUB_TOKEN` env var or config.
+  - **metrics** — Task execution metrics: tracks success rates, iteration counts, duration, model/template/project breakdowns. Writes to `metrics.json`. Includes `tasksmith metrics` CLI command with colored output.
+  - **docker** — Docker container isolation: run tasks in sandboxed containers with resource limits, project directory mounting, automatic cleanup on completion/shutdown. Supports per-task image overrides. Includes `tasksmith docker` CLI command for status.
+- **Bundled plugin registry** — `src/plugins/bundled/index.ts` with lazy-loaded imports for zero startup cost
+- **`tasksmith plugin list`** now shows official bundled plugins with enabled/disabled status alongside npm-discovered community plugins
+- **Plugin loading priority** — bundled plugins resolve first, then npm packages, then local paths
+- **`@tasksmith-dev` npm scope** secured for future scoped package publishing
+
+### Changed
+- Plugin system `loadFromConfig()` now checks bundled registry before npm resolution
+- `tasksmith plugin list` redesigned with enabled/disabled indicators and inline descriptions
+- Updated plugins README to accurately reflect what ships vs what's planned
+
 ## [0.4.0] - 2025-02-17
 
 ### Added
@@ -78,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration management with YAML and deep merge
 - Workspace scaffolding
 
+[0.5.0]: https://github.com/mattezell/tasksmith/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mattezell/tasksmith/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/mattezell/tasksmith/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mattezell/tasksmith/compare/v0.2.0...v0.3.0

@@ -257,19 +257,37 @@ export class PluginManager {
     const pluginEntries = (this.config as any).plugins as Array<string | Record<string, unknown>> | undefined;
     if (!pluginEntries || pluginEntries.length === 0) return;
 
+    const { isBundledPlugin, loadBundledPlugin } = await import("./plugins/bundled/index.js");
+
     for (const entry of pluginEntries) {
       try {
-        if (typeof entry === "string") {
-          await this.load(entry, {});
-        } else {
-          const name = (entry.name as string) || (entry.path as string) || "";
-          if (!name) continue;
-          if (entry.enabled === false) {
-            console.log(`  ${chalk.dim("○")} Plugin disabled: ${name}`);
+        const name = typeof entry === "string" ? entry : ((entry.name as string) || (entry.path as string) || "");
+        if (!name) continue;
+
+        const options = typeof entry === "object" ? ((entry.config as Record<string, unknown>) || {}) : {};
+
+        if (typeof entry === "object" && entry.enabled === false) {
+          console.log(`  ${chalk.dim("○")} Plugin disabled: ${name}`);
+          continue;
+        }
+
+        // Try bundled plugin first
+        if (isBundledPlugin(name)) {
+          const activate = await loadBundledPlugin(name);
+          if (activate) {
+            if (this.plugins.has(name)) {
+              console.warn(`[plugins] ${name} already loaded, skipping`);
+              continue;
+            }
+            const plugin = { name, manifest: {}, activate, deactivate: undefined, options };
+            this.plugins.set(name, plugin);
+            console.log(`  ${chalk.green("✓")} Plugin: ${name} ${chalk.dim("(bundled)")}`);
             continue;
           }
-          await this.load(name, (entry.config as Record<string, unknown>) || {});
         }
+
+        // Fall through to npm/path resolution
+        await this.load(name, options);
       } catch (e: any) {
         console.error(`  ${chalk.red("✗")} Plugin load failed: ${e.message}`);
       }
