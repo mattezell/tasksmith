@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **github** — GitHub Issues/PR integration: auto-create issues on task failure, comment results on linked issues, close issues on task success. Uses GitHub REST API with `GITHUB_TOKEN` env var or config.
   - **metrics** — Task execution metrics: tracks success rates, iteration counts, duration, model/template/project breakdowns. Writes to `metrics.json`. Includes `tasksmith metrics` CLI command with colored output.
   - **docker** — Docker container isolation: run tasks in sandboxed containers with resource limits, project directory mounting, automatic cleanup on completion/shutdown. Supports per-task image overrides. Includes `tasksmith docker` CLI command for status.
+  - **jira** — JIRA ticket integration: auto-create tickets on task failure, comment results on linked tickets, transition tickets to "Done" on success. Uses Atlassian REST API v3 with API token auth.
+  - **postgres** — PostgreSQL task history: stores every task execution with full metadata, auto-creates tables, queryable via SQL. Includes `tasksmith pg` CLI command for viewing history. Peer dependency on `pg` package.
+  - **proxmox** — Proxmox VE integration: clone VMs from templates, start/stop on task lifecycle, snapshot before execution, rollback on failure, auto-cleanup. Includes `tasksmith proxmox` CLI command. Great for full OS-level isolation.
 - **Bundled plugin registry** — `src/plugins/bundled/index.ts` with lazy-loaded imports for zero startup cost
 - **`tasksmith plugin list`** now shows official bundled plugins with enabled/disabled status alongside npm-discovered community plugins
 - **Plugin loading priority** — bundled plugins resolve first, then npm packages, then local paths

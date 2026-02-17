@@ -6,26 +6,27 @@
  *
  * Config:
  *   plugins:
- *     - github                     # shorthand, uses defaults
- *     - name: metrics              # with custom config
- *       config:
- *         retainDays: 180
- *     - name: docker
- *       config:
- *         image: "node:22-slim"
+ *     - github
+ *     - metrics
+ *     - docker
+ *     - jira
+ *     - postgres
+ *     - proxmox
  *
- * Bundled plugins are loaded BEFORE npm-discovered plugins,
+ * Bundled plugins load BEFORE npm-discovered plugins,
  * so they can be overridden by installing an npm package with the same name.
  */
 
 import type { PluginActivateFn } from "../../plugins.js";
 
-// Plugin name → lazy import function
-// We use dynamic imports so unused plugins don't add startup cost
+// Lazy imports — unused plugins add zero startup cost
 const BUNDLED_PLUGINS: Record<string, () => Promise<{ default: PluginActivateFn }>> = {
-  github: () => import("./github.js"),
-  metrics: () => import("./metrics.js"),
-  docker: () => import("./docker.js"),
+  github:   () => import("./github.js"),
+  metrics:  () => import("./metrics.js"),
+  docker:   () => import("./docker.js"),
+  jira:     () => import("./jira.js"),
+  postgres: () => import("./postgres.js"),
+  proxmox:  () => import("./proxmox.js"),
 };
 
 /** List of all bundled plugin names */
@@ -59,5 +60,17 @@ export const BUNDLED_PLUGIN_INFO: Record<string, { description: string; configKe
   docker: {
     description: "Docker container isolation — run tasks in sandboxed containers",
     configKeys: ["image", "mountProject", "resourceLimits", "networkMode", "autoCleanup"],
+  },
+  jira: {
+    description: "JIRA ticket integration — create tickets on failure, transition on success",
+    configKeys: ["host", "email", "apiToken", "projectKey", "issueType"],
+  },
+  postgres: {
+    description: "PostgreSQL task history — queryable execution records and analytics",
+    configKeys: ["connectionString", "tableName", "autoMigrate"],
+  },
+  proxmox: {
+    description: "Proxmox VM provisioning — full OS-level isolation for task execution",
+    configKeys: ["host", "tokenId", "tokenSecret", "node", "templateVmId"],
   },
 };
