@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskSmith — Agent Orchestration for Claude Code</title>
+<meta name="description" content="Turn Claude Code into a task engine. Drop a YAML file, get production code back. Compiled prompts, auto-retry, memory, notifications, plugins.">
+<meta property="og:title" content="TaskSmith — Agent Orchestration for Claude Code">
+<meta property="og:description" content="Turn Claude Code into a task engine. 2,900 lines of TypeScript. Zero bloat.">
+<link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="noise"></div>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-logo"><span class="chevron">▸</span> TaskSmith</a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">Pipeline</a>
+      <a href="#plugins">Plugins</a>
+      <a href="https://github.com/mattezell/tasksmith" class="nav-gh">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GITHUB
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge"><span class="dot"></span> Open Source &middot; MIT Licensed</div>
+  <h1>Claude Code<br>becomes a <span class="gradient">task engine.</span></h1>
+  <p class="hero-sub">Drop a YAML file. TaskSmith assembles your context, invokes Claude Code, validates the output, retries until tests pass, and pings you when it's done.</p>
+  
+  <div class="install-block">
+    <div class="install-cmd" onclick="copyInstall(this)">
+      <span class="dollar">$</span>
+      <span class="text">npm install -g <b>tasksmith-cli</b></span>
+      <span class="copy-hint">[CLICK TO COPY]</span>
+    </div>
+    <div class="install-after">then: <code>tasksmith setup</code> → <code>tasksmith run</code></div>
+  </div>
+
+  <div class="demo">
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+        <span class="terminal-title">~/my-api — tasksmith v0.3.1</span>
+      </div>
+      <div class="terminal-body">
+        <div class="t-line" style="animation-delay:.6s"><span class="t-prompt">▸ </span><span class="t-cmd">tasksmith submit -t ralph-loop \</span></div>
+        <div class="t-line" style="animation-delay:.8s"><span class="t-cmd">    -p "Add input validation to /users" \</span></div>
+        <div class="t-line" style="animation-delay:1s"><span class="t-cmd">    --project my-api</span></div>
+        <div class="t-line" style="animation-delay:1.5s">&nbsp;</div>
+        <div class="t-line" style="animation-delay:1.7s"><span class="t-accent">  ■ TASK SUBMITTED</span></div>
+        <div class="t-line" style="animation-delay:1.9s"><span class="t-output">  ID:       </span><span class="t-blue">task-20250217-a3f9c1</span></div>
+        <div class="t-line" style="animation-delay:2.1s"><span class="t-output">  Template: </span><span class="t-cmd">ralph-loop</span></div>
+        <div class="t-line" style="animation-delay:2.3s"><span class="t-output">  Model:    </span><span class="t-purple">sonnet</span></div>
+        <div class="t-line" style="animation-delay:2.5s"><span class="t-output">  Queue:    </span><span class="t-cmd">1 of 1</span></div>
+        <div class="t-line" style="animation-delay:3.0s">&nbsp;</div>
+        <div class="t-line" style="animation-delay:3.3s"><span class="t-comment">  // 3 minutes later, your phone buzzes:</span></div>
+        <div class="t-line" style="animation-delay:3.8s"><span class="t-accent">  ✓ COMPLETE — </span><span class="t-output">passed after 2 iteration(s)</span></div>
+        <div class="t-line" style="animation-delay:4.1s"><span class="t-output">  npm test </span><span style="color:var(--green);text-shadow:0 0 8px rgba(51,255,51,.4)">■ ALL PASSING</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <span class="section-label">sys.capabilities</span>
+  <h2 class="section-title">Everything Claude Code<br>should have been.</h2>
+  <p class="section-sub">The orchestration layer that turns a single-shot CLI into an autonomous coding agent.</p>
+  
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-tag">01 // CONTEXT</div>
+      <h3>Compiled Prompts</h3>
+      <p>SOUL.md, USER.md, conventions, memory, and project context automatically assembled into every prompt. Claude always has full context. You never repeat yourself.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">02 // VALIDATION</div>
+      <h3>Ralph Loop</h3>
+      <p>Define a validation command. TaskSmith runs Claude Code, checks output, feeds errors back, retries. Iterate until <code>npm test</code> passes.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">03 // PERSISTENCE</div>
+      <h3>Three-Tier Memory</h3>
+      <p>Hot memory loads every prompt. Warm JSONL logs are searchable. Cold archives compressed. Claude remembers across tasks — decisions, preferences, patterns.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">04 // COMMS</div>
+      <h3>Notifications Everywhere</h3>
+      <p>Discord, Slack, ntfy.sh, email, webhooks. Know when tasks finish. Get results on your phone while doing something else.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">05 // INPUT</div>
+      <h3>Inbound Commands</h3>
+      <p>Submit tasks from Discord, REST API, or file drop. <code>@forge fix the auth bug in my-api</code> parses to a task with the right template and priority.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">06 // EXTEND</div>
+      <h3>Plugin System</h3>
+      <p><code>npm install tasksmith-plugin-*</code>, add one line to config. A plugin is a function — not a framework. npm is the package manager.</p>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how" id="how">
+  <span class="section-label">task.pipeline</span>
+  <h2 class="section-title">How a task flows.</h2>
+  <p class="section-sub">From YAML to passing tests in minutes, not hours.</p>
+  
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">01</div>
+      <h4>Submit</h4>
+      <p>YAML file, Discord message, REST API, or CLI command</p>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">02</div>
+      <h4>Assemble</h4>
+      <p>Soul + user + conventions + memory + project into one prompt</p>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">03</div>
+      <h4>Execute</h4>
+      <p>Claude Code runs with full context in your project directory</p>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">04</div>
+      <h4>Validate</h4>
+      <p>Run test suite. If it fails, feed errors back and retry</p>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">05</div>
+      <h4>Notify</h4>
+      <p>Push to Discord, Slack, phone. Archive to memory</p>
+    </div>
+  </div>
+</section>
+
+<!-- NUMBERS -->
+<section class="numbers">
+  <div class="numbers-grid">
+    <div class="num-item"><div class="num">2,900</div><div class="num-label">Lines of TypeScript</div></div>
+    <div class="num-item"><div class="num">0</div><div class="num-label">External frameworks</div></div>
+    <div class="num-item"><div class="num">7</div><div class="num-label">Built-in templates</div></div>
+    <div class="num-item"><div class="num">10</div><div class="num-label">Comm providers</div></div>
+  </div>
+</section>
+
+<!-- PLUGINS -->
+<section class="plugins-section" id="plugins">
+  <span class="section-label">plugins.api</span>
+  <h2 class="section-title">npm is the<br>plugin manager.</h2>
+  <p class="section-sub">No custom registry. No magic. A plugin is a function that receives a context object.</p>
+
+  <div class="plugin-demo">
+    <div class="plugin-code">
+      <span style="color:var(--fg3)">// tasksmith-plugin-proxmox/index.js</span><br>
+      <span style="color:var(--hot-pink)">export default</span> <span style="color:var(--cyan)">function</span> <span style="color:var(--fg)">proxmoxPlugin</span>(<span style="color:var(--amber)">forge</span>, <span style="color:var(--amber)">opts</span>) {<br>
+      &nbsp;&nbsp;forge.<span style="color:var(--cyan)">addOutboundProvider</span>(<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--hot-pink)">new</span> ProxmoxNotifier(opts)<br>
+      &nbsp;&nbsp;);<br><br>
+      &nbsp;&nbsp;forge.<span style="color:var(--cyan)">addTemplate</span>(<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--green)">"proxmox-provision"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--green)">"./templates/provision"</span><br>
+      &nbsp;&nbsp;);<br><br>
+      &nbsp;&nbsp;forge.<span style="color:var(--cyan)">addHook</span>(<span style="color:var(--green)">"afterTaskExecute"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--hot-pink)">async</span> (data) => {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;forge.log.<span style="color:var(--cyan)">info</span>(<span style="color:var(--green)">`Done: ${data.taskId}`</span>);<br>
+      &nbsp;&nbsp;});<br>
+      }
+    </div>
+    <div class="plugin-steps">
+      <div class="plugin-step">
+        <div class="plugin-step-num">1</div>
+        <div>
+          <h4>Install</h4>
+          <p><code>npm install tasksmith-plugin-proxmox</code></p>
+        </div>
+      </div>
+      <div class="plugin-step">
+        <div class="plugin-step-num">2</div>
+        <div>
+          <h4>Configure</h4>
+          <p>One line in tasksmith.yaml:<br><code style="color:var(--fg2)">plugins: [tasksmith-plugin-proxmox]</code></p>
+        </div>
+      </div>
+      <div class="plugin-step">
+        <div class="plugin-step-num">3</div>
+        <div>
+          <h4>Done</h4>
+          <p>Templates, providers, and hooks available immediately. Zero engine changes.</p>
+        </div>
+      </div>
+      <div class="plugin-step">
+        <div class="plugin-step-num">+</div>
+        <div>
+          <h4>Scaffold Your Own</h4>
+          <p><code>tasksmith plugin create my-thing</code><br>Complete publishable plugin in seconds.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BBS BANNER -->
+<div class="bbs-banner" aria-hidden="true">
+<pre>
+╔════════════════════════════════════════════════════════════════════╗
+║                                                                    ║
+║    ████████╗ █████╗ ███████╗██╗  ██╗                               ║
+║    ╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝                               ║
+║       ██║   ███████║███████╗█████╔╝                                ║
+║       ██║   ██╔══██║╚════██║██╔═██╗                                ║
+║       ██║   ██║  ██║███████║██║  ██╗                               ║
+║       ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝                               ║
+║                                                                    ║
+║    ███████╗███╗   ███╗██╗████████╗██╗  ██╗                         ║
+║    ██╔════╝████╗ ████║██║╚══██╔══╝██║  ██║                         ║
+║    ███████╗██╔████╔██║██║   ██║   ███████║                         ║
+║    ╚════██║██║╚██╔╝██║██║   ██║   ██╔══██║                         ║
+║    ███████║██║ ╚═╝ ██║██║   ██║   ██║  ██║                         ║
+║    ╚══════╝╚═╝     ╚═╝╚═╝   ╚═╝   ╚═╝  ╚═╝                         ║
+║                                                                    ║
+║    Node 1 of 1  ·  SysOp: Matt  ·  EST 2025  ·  MIT License       ║
+║                                                                    ║
+╚════════════════════════════════════════════════════════════════════╝
+</pre>
+</div>
+
+<!-- CREATOR -->
+<section class="creator">
+  <div class="creator-label">SysOp</div>
+  <h3>Matt</h3>
+  <p>Software architect from Birmingham, AL. Built TaskSmith because OpenClaw's 430k lines were too many and Claude Code's zero orchestration wasn't enough. This is the middle ground — lightweight, opinionated, and actually useful.</p>
+  <div class="creator-links">
+    <a href="https://github.com/mattezell">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+    <a href="https://x.com/mattezell">
+      <svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      X / Twitter
+    </a>
+    <a href="https://www.linkedin.com/in/mattezell">
+      <svg viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+      LinkedIn
+    </a>
+  </div>
+</section>
+
+<!-- FOOTER CTA -->
+<section class="footer-cta">
+  <h2>Initialize Sequence.</h2>
+  <p>Three commands. Five minutes. Then go do something else<br>while Claude writes your code.</p>
+  <div class="cta-buttons">
+    <a href="https://github.com/mattezell/tasksmith" class="btn btn-primary">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      VIEW ON GITHUB
+    </a>
+    <a href="#" class="btn btn-secondary" onclick="copyInstall2()">
+      $ npm install -g tasksmith-cli
+    </a>
+  </div>
+</section>
+
+<footer>
+  <p>TaskSmith is open source software under the MIT license. Not affiliated with Anthropic.<br>
+  Forged with unreasonable enthusiasm by <a href="https://github.com/mattezell">Matt</a> · Birmingham, AL · 2025</p>
+</footer>
+
+<script>
+function copyInstall(el){
+  navigator.clipboard.writeText('npm install -g tasksmith-cli');
+  el.classList.add('copied');
+  el.querySelector('.copy-hint').textContent='[COPIED]';
+  setTimeout(()=>{el.classList.remove('copied');el.querySelector('.copy-hint').textContent='[CLICK TO COPY]'},2000);
+}
+function copyInstall2(){navigator.clipboard.writeText('npm install -g tasksmith-cli')}
+
+const observer=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{if(e.isIntersecting){e.target.style.opacity='1';e.target.style.transform='translateY(0)'}})
+},{threshold:.1});
+document.querySelectorAll('.feature-card,.flow-step,.num-item,.plugin-step').forEach(el=>{
+  el.style.opacity='0';el.style.transform='translateY(15px)';el.style.transition='opacity .5s ease,transform .5s ease';observer.observe(el);
+});
+</script>
+</body>
+</html>
