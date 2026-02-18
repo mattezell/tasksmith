@@ -5,8 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "tasksmith": "./dist/cli.js",
-    "forge": "./dist/cli.js"
+    "tasksmith": "dist/cli.js",
+    "forge": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
