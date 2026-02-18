@@ -33,7 +33,7 @@
  *     proxmox_memory: 8192
  */
 
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 
 interface ProxmoxConfig {
   host: string;
@@ -151,7 +151,7 @@ const provisionedVms = new Map<string, { vmId: number; node: string }>();
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function proxmoxPlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function proxmoxPlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: ProxmoxConfig = { ...DEFAULTS, ...options } as ProxmoxConfig;
   config.tokenId = config.tokenId || process.env.PROXMOX_TOKEN_ID || "";
   config.tokenSecret = config.tokenSecret || process.env.PROXMOX_TOKEN_SECRET || "";

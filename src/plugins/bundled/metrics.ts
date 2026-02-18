@@ -24,7 +24,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 
 interface MetricsConfig {
   metricsFile: string;
@@ -176,7 +176,7 @@ const taskStartTimes = new Map<string, number>();
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function metricsPlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function metricsPlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: MetricsConfig = { ...DEFAULTS, ...options } as MetricsConfig;
   const metricsPath = join(ctx.workspace, config.metricsFile);
 

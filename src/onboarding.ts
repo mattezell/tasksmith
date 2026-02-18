@@ -11,7 +11,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { scaffoldWorkspace, saveConfig, backupConfig, DEFAULT_CONFIG } from "./config.js";
 import { OUTBOUND_REGISTRY } from "./providers/comms/providers.js";
-import type { ForgeConfig, Notification, Priority } from "./types.js";
+import type { TaskSmithConfig, Notification, Priority } from "./types.js";
 
 function header(text: string) {
   console.log(chalk.blue(`\n  ═══ ${text} ═══\n`));
@@ -181,7 +181,7 @@ async function stepUser(ws: string) {
   console.log(`    ${chalk.green("✓")} USER.md created`);
 }
 
-async function stepComms(ws: string, config: ForgeConfig): Promise<ForgeConfig> {
+async function stepComms(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
   step(5, 8, "Communication");
 
   const isEnabled = (p: string) => config.communication.outbound.find(e => e.provider === p)?.enabled ?? false;
@@ -251,7 +251,7 @@ async function stepComms(ws: string, config: ForgeConfig): Promise<ForgeConfig> 
   return config;
 }
 
-async function stepModels(ws: string, config: ForgeConfig): Promise<ForgeConfig> {
+async function stepModels(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
   step(6, 8, "Model Routing");
 
   let ollamaModels: string[] = [];
@@ -288,7 +288,7 @@ async function stepModels(ws: string, config: ForgeConfig): Promise<ForgeConfig>
   return config;
 }
 
-async function stepMemory(ws: string, config: ForgeConfig): Promise<ForgeConfig> {
+async function stepMemory(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
   step(7, 8, "Memory System");
   console.log("    Baseline (always on): markdown hot + JSONL warm");
 
@@ -306,7 +306,7 @@ async function stepMemory(ws: string, config: ForgeConfig): Promise<ForgeConfig>
   return config;
 }
 
-async function stepSmokeTest(ws: string, config: ForgeConfig) {
+async function stepSmokeTest(ws: string, config: TaskSmithConfig) {
   step(8, 8, "Smoke Test");
 
   const enabled = config.communication.outbound.filter(e => e.enabled);
@@ -333,7 +333,7 @@ async function stepSmokeTest(ws: string, config: ForgeConfig) {
 // MAIN
 // =============================================================================
 
-export async function runSetup(ws: string, config: ForgeConfig, stepName?: string) {
+export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: string) {
   header("TaskSmith Onboarding");
 
   // Backup existing config before making changes

@@ -15,7 +15,7 @@ import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 import type {
   Task, TaskStatus, Priority, Notification, MemoryEntry,
-  OutboundCommsProvider, MemoryProvider, ForgeConfig,
+  OutboundCommsProvider, MemoryProvider, TaskSmithConfig,
 } from "./types.js";
 import type { MarkdownMemoryProvider } from "./providers/memory/providers.js";
 import { resolveTemplate, isTaskFile, parseTaskFile } from "./config.js";

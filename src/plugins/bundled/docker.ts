@@ -32,7 +32,7 @@
  */
 
 import { execSync, spawnSync } from "node:child_process";
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 
 interface DockerConfig {
   enabled: boolean;
@@ -91,7 +91,7 @@ function imageExists(image: string): boolean {
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function dockerPlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function dockerPlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: DockerConfig = { ...DEFAULTS, ...options } as DockerConfig;
   if (options.resourceLimits) {
     config.resourceLimits = { ...DEFAULTS.resourceLimits, ...(options.resourceLimits as Record<string, string>) };

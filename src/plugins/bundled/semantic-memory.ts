@@ -30,7 +30,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 
 interface SemanticConfig {
   provider: "ollama" | "openai" | "gemini";
@@ -263,7 +263,7 @@ function saveStore(store: EmbeddingsStore, filePath: string): void {
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function semanticMemoryPlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function semanticMemoryPlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: SemanticConfig = { ...DEFAULTS, ...options } as SemanticConfig;
   const storeFile = join(ctx.workspace, config.embeddingsFile);
   let store = loadStore(storeFile);

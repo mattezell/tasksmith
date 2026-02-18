@@ -26,13 +26,13 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFi
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import yaml from "js-yaml";
-import type { ForgeConfig } from "./types.js";
+import type { TaskSmithConfig } from "./types.js";
 
 // =============================================================================
 // DEFAULT CONFIG
 // =============================================================================
 
-export const DEFAULT_CONFIG: ForgeConfig = {
+export const DEFAULT_CONFIG: TaskSmithConfig = {
   system: { name: "TaskSmith", version: "0.5.0", logLevel: "INFO" },
   workspace: {
     projectsDir: "",        // if empty, defaults to <workspace>/projects
@@ -50,7 +50,7 @@ export const DEFAULT_CONFIG: ForgeConfig = {
     ],
     inbound: [
       { provider: "file_drop", enabled: true, config: {} },
-      { provider: "discord_bot", enabled: false, config: { botToken: "", channelId: "", commandPrefix: "@forge" } },
+      { provider: "discord_bot", enabled: false, config: { botToken: "", channelId: "", commandPrefix: "@tasksmith" } },
       { provider: "rest_api", enabled: false, config: { host: "0.0.0.0", port: 8420 } },
       { provider: "watched_folder", enabled: false, config: { path: "" } },
     ],
@@ -181,7 +181,7 @@ export function resolveWorkspace(explicit?: string): string {
  * Resolve where projects live.
  * Uses workspace.projectsDir from config, or <workspace>/projects.
  */
-export function resolveProjectsDir(workspace: string, config: ForgeConfig): string {
+export function resolveProjectsDir(workspace: string, config: TaskSmithConfig): string {
   if (config.workspace?.projectsDir) return resolve(config.workspace.projectsDir);
   return join(workspace, "projects");
 }
@@ -234,7 +234,7 @@ export function initProjectLocal(projectDir: string): string {
  * Resolve template directory by searching paths in priority order.
  * Returns path to directory containing PROMPT.md, or null.
  */
-export function resolveTemplate(templateName: string, workspace: string, config: ForgeConfig): string | null {
+export function resolveTemplate(templateName: string, workspace: string, config: TaskSmithConfig): string | null {
   const normalized = templateName.replace(/-/g, "_");
   const searchPaths: string[] = [];
 
@@ -276,7 +276,7 @@ export function resolveTemplate(templateName: string, workspace: string, config:
 /**
  * List all available templates across all search paths (deduplicated, first wins).
  */
-export function listTemplates(workspace: string, config: ForgeConfig): Array<{ name: string; source: string; path: string }> {
+export function listTemplates(workspace: string, config: TaskSmithConfig): Array<{ name: string; source: string; path: string }> {
   const found = new Map<string, { source: string; path: string }>();
 
   const scan = (dir: string, source: string) => {
@@ -316,7 +316,7 @@ export function parseConfigFile(content: string, filePath: string): Record<strin
  * Load config with layered merge:
  *   defaults -> global config -> workspace config
  */
-export function loadConfig(workspace: string): ForgeConfig {
+export function loadConfig(workspace: string): TaskSmithConfig {
   let config = structuredClone(DEFAULT_CONFIG);
 
   // Layer 1: Global config (if workspace is not already global)
@@ -325,7 +325,7 @@ export function loadConfig(workspace: string): ForgeConfig {
     const globalFile = findConfigFile(global);
     if (globalFile) {
       const raw = readFileSync(globalFile, "utf-8");
-      config = deepMerge(config, parseConfigFile(raw, globalFile)) as ForgeConfig;
+      config = deepMerge(config, parseConfigFile(raw, globalFile)) as TaskSmithConfig;
     }
   }
 
@@ -333,7 +333,7 @@ export function loadConfig(workspace: string): ForgeConfig {
   const wsFile = findConfigFile(workspace);
   if (wsFile) {
     const raw = readFileSync(wsFile, "utf-8");
-    config = deepMerge(config, parseConfigFile(raw, wsFile)) as ForgeConfig;
+    config = deepMerge(config, parseConfigFile(raw, wsFile)) as TaskSmithConfig;
   }
 
   return config;
@@ -349,7 +349,7 @@ export function backupConfig(workspace: string): string | null {
   return backupFile;
 }
 
-export function saveConfig(workspace: string, config: ForgeConfig, format: "yaml" | "json" = "yaml"): string {
+export function saveConfig(workspace: string, config: TaskSmithConfig, format: "yaml" | "json" = "yaml"): string {
   const ext = format === "json" ? "json" : "yaml";
   const configFile = join(workspace, "config", `tasksmith.${ext}`);
   mkdirSync(join(workspace, "config"), { recursive: true });

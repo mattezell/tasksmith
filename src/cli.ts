@@ -14,21 +14,25 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 
 import { resolveWorkspace, loadConfig, workspaceInfo, initProjectLocal, listTemplates, resolveProjectsDir, isTaskFile } from "./config.js";
 import type { MemoryProvider } from "./types.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+
 const program = new Command();
 
 program
   .name("tasksmith")
   .description("Lightweight Agent Orchestration Built on Claude Code CLI")
-  .version("0.3.1")
+  .version(pkg.version)
   .option("--dir <path>", "Workspace directory");
 
 // ── RUN ────────────────────────────────────────────────────────────

@@ -28,7 +28,7 @@
  *     jira_ticket: "PROJ-123"
  */
 
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 import type { Notification, OutboundCommsProvider } from "../../types.js";
 
 interface JiraConfig {
@@ -177,7 +177,7 @@ class JiraOutboundProvider implements OutboundCommsProvider {
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function jiraPlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function jiraPlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: JiraConfig = { ...DEFAULTS, ...options } as JiraConfig;
   config.apiToken = config.apiToken || process.env.JIRA_API_TOKEN || "";
 

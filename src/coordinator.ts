@@ -19,7 +19,7 @@ import { PluginManager } from "./plugins.js";
 import { Scheduler } from "./scheduler.js";
 import { WorkerPool, POOL_DEFAULTS } from "./pool.js";
 import type {
-  ForgeConfig, OutboundCommsProvider, InboundCommsProvider,
+  TaskSmithConfig, OutboundCommsProvider, InboundCommsProvider,
   MemoryProvider, InboundMessage, Task,
 } from "./types.js";
 import { readFileSync } from "node:fs";
@@ -30,7 +30,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-
 
 export class Coordinator {
   private workspace: string;
-  private config: ForgeConfig;
+  private config: TaskSmithConfig;
 
   private engine!: TaskEngine;
   private outbound: OutboundCommsProvider[] = [];
@@ -45,7 +45,7 @@ export class Coordinator {
   private scheduler: Scheduler | null = null;
   private pool: WorkerPool | null = null;
 
-  constructor(workspace: string, config: ForgeConfig) {
+  constructor(workspace: string, config: TaskSmithConfig) {
     this.workspace = workspace;
     this.config = config;
     this.pluginManager = new PluginManager(workspace, config as any);

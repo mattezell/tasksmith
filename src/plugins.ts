@@ -7,7 +7,7 @@
  *
  * Principles:
  *   1. npm IS the plugin manager (no custom registry)
- *   2. A plugin is a function that receives the forge instance + options
+ *   2. A plugin is a function that receives the plugin context + options
  *   3. Discovery via package.json keyword "tasksmith-plugin"
  *   4. Manifest via package.json "tasksmith" field (what the plugin provides)
  *   5. Zero-config for simple plugins, full control when needed
@@ -70,7 +70,7 @@ import type {
  * The context object passed to every plugin's activate function.
  * This is the plugin's only way to extend TaskSmith.
  */
-export interface ForgePluginContext {
+export interface PluginContext {
   /** Register an outbound communication provider */
   addOutboundProvider(provider: OutboundCommsProvider): void;
 
@@ -103,7 +103,7 @@ export interface ForgePluginContext {
   };
 }
 
-export type PluginActivateFn = (ctx: ForgePluginContext, options: Record<string, unknown>) => void | Promise<void>;
+export type PluginActivateFn = (ctx: PluginContext, options: Record<string, unknown>) => void | Promise<void>;
 export type PluginDeactivateFn = () => void | Promise<void>;
 
 export type PluginHookEvent =
@@ -206,7 +206,7 @@ export class PluginManager {
                 const scopedPkg = join(searchDir, entry.name, sub.name, "package.json");
                 if (existsSync(scopedPkg)) {
                   const pkg = JSON.parse(readFileSync(scopedPkg, "utf-8"));
-                  if (this.isForgePlugin(pkg)) {
+                  if (this.isTaskSmithPlugin(pkg)) {
                     found.push(`${entry.name}/${sub.name}`);
                   }
                 }
@@ -219,7 +219,7 @@ export class PluginManager {
         if (pkgPath && existsSync(pkgPath)) {
           try {
             const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-            if (this.isForgePlugin(pkg)) {
+            if (this.isTaskSmithPlugin(pkg)) {
               found.push(entry.name);
             }
           } catch { /* skip */ }
@@ -230,7 +230,7 @@ export class PluginManager {
     return found;
   }
 
-  private isForgePlugin(pkg: Record<string, unknown>): boolean {
+  private isTaskSmithPlugin(pkg: Record<string, unknown>): boolean {
     const keywords = pkg.keywords as string[] | undefined;
     const name = pkg.name as string | undefined;
     return (
@@ -405,7 +405,7 @@ export class PluginManager {
 
   // ── Context Factory ────────────────────────────────────────────
 
-  private createContext(pluginName: string): ForgePluginContext {
+  private createContext(pluginName: string): PluginContext {
     const self = this;
     return {
       workspace: self.workspace,
@@ -514,7 +514,7 @@ export function scaffoldPlugin(name: string, targetDir: string): void {
   writeFileSync(join(dir, "index.js"), `/**
  * ${pluginName}
  *
- * @param {import('tasksmith').ForgePluginContext} forge
+ * @param {import('tasksmith').PluginContext} ctx
  * @param {Record<string, unknown>} options
  */
 export default function ${camelCase(shortName)}Plugin(forge, options) {
