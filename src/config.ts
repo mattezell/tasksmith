@@ -25,15 +25,19 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
 import type { TaskSmithConfig } from "./types.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
 
 // =============================================================================
 // DEFAULT CONFIG
 // =============================================================================
 
 export const DEFAULT_CONFIG: TaskSmithConfig = {
-  system: { name: "TaskSmith", version: "0.5.0", logLevel: "INFO" },
+  system: { name: "TaskSmith", version: pkg.version, logLevel: "INFO" },
   workspace: {
     projectsDir: "",        // if empty, defaults to <workspace>/projects
     templatesDir: "",       // additional template search path
