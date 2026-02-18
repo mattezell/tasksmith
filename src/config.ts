@@ -22,7 +22,7 @@
  * File formats: YAML (.yaml/.yml) and JSON (.json) for both config and task files.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import yaml from "js-yaml";
@@ -337,6 +337,16 @@ export function loadConfig(workspace: string): ForgeConfig {
   }
 
   return config;
+}
+
+/** Create a timestamped backup of the existing config file. Returns backup path or null if no config exists. */
+export function backupConfig(workspace: string): string | null {
+  const configFile = findConfigFile(workspace);
+  if (!configFile) return null;
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupFile = `${configFile}.${timestamp}.bak`;
+  copyFileSync(configFile, backupFile);
+  return backupFile;
 }
 
 export function saveConfig(workspace: string, config: ForgeConfig, format: "yaml" | "json" = "yaml"): string {

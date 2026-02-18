@@ -7,9 +7,9 @@
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { execSync } from "node:child_process";
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { scaffoldWorkspace, saveConfig, DEFAULT_CONFIG } from "./config.js";
+import { scaffoldWorkspace, saveConfig, backupConfig, DEFAULT_CONFIG } from "./config.js";
 import { OUTBOUND_REGISTRY } from "./providers/comms/providers.js";
 import type { ForgeConfig, Notification, Priority } from "./types.js";
 
@@ -20,6 +20,57 @@ function header(text: string) {
 function step(n: number, total: number, text: string) {
   console.log(`\n  ${chalk.cyan(`[${n}/${total}]`)} ${chalk.bold(text)}`);
   console.log(chalk.dim("  " + "─".repeat(48)));
+}
+
+// =============================================================================
+// PARSE EXISTING SETTINGS
+// =============================================================================
+
+function parseSoulDefaults(ws: string): Record<string, any> {
+  const soulPath = join(ws, "directives", "SOUL.md");
+  if (!existsSync(soulPath)) return {};
+  const content = readFileSync(soulPath, "utf-8");
+  const defaults: Record<string, any> = {};
+
+  const styleMatch = content.match(/- Style: (\w+)/);
+  if (styleMatch) defaults.style = styleMatch[1];
+
+  const approachMatch = content.match(/- Approach: ([\w-]+)/);
+  if (approachMatch) defaults.philosophy = approachMatch[1];
+
+  defaults.testsFirst = content.includes("Tests first");
+  defaults.minComments = content.includes("Self-documenting code");
+
+  if (content.includes("ask before proceeding")) defaults.uncertain = "ask first";
+  else if (content.includes("make a reasonable choice")) defaults.uncertain = "try then check";
+
+  const antiSection = content.match(/## Anti-Patterns\n((?:- .+\n?)+)/);
+  if (antiSection) {
+    defaults.anti = antiSection[1].split("\n").filter((l: string) => l.startsWith("- ")).map((l: string) => l.replace(/^- /, "")).join(", ");
+  }
+
+  return defaults;
+}
+
+function parseUserDefaults(ws: string): Record<string, string> {
+  const userPath = join(ws, "directives", "USER.md");
+  if (!existsSync(userPath)) return {};
+  const content = readFileSync(userPath, "utf-8");
+  const defaults: Record<string, string> = {};
+
+  const nameMatch = content.match(/- Name: (.+)/);
+  if (nameMatch) defaults.name = nameMatch[1].trim();
+
+  const roleMatch = content.match(/- Role: (.+)/);
+  if (roleMatch) defaults.role = roleMatch[1].trim();
+
+  const langsMatch = content.match(/- Languages: (.+)/);
+  if (langsMatch) defaults.langs = langsMatch[1].trim();
+
+  const gpuMatch = content.match(/- Local GPU: (.+)/);
+  if (gpuMatch) defaults.gpu = gpuMatch[1].trim();
+
+  return defaults;
 }
 
 // =============================================================================
@@ -62,13 +113,14 @@ async function stepInit(ws: string) {
 async function stepSoul(ws: string) {
   step(3, 8, "SOUL.md — How Claude Works For You");
 
+  const prev = parseSoulDefaults(ws);
   const answers = await inquirer.prompt([
-    { name: "style", message: "Communication style:", type: "list", choices: ["concise", "balanced", "verbose"], default: "concise" },
-    { name: "philosophy", message: "Code philosophy:", type: "list", choices: ["pragmatic", "principled", "move-fast"], default: "pragmatic" },
-    { name: "testsFirst", message: "Test-first approach?", type: "confirm", default: true },
-    { name: "minComments", message: "Minimal comments (self-documenting code)?", type: "confirm", default: true },
-    { name: "uncertain", message: "When uncertain:", type: "list", choices: ["ask first", "try then check"], default: "try then check" },
-    { name: "anti", message: "Anti-patterns (comma-separated):", default: "over-engineering, unnecessary abstractions, premature optimization" },
+    { name: "style", message: "Communication style:", type: "list", choices: ["concise", "balanced", "verbose"], default: prev.style || "concise" },
+    { name: "philosophy", message: "Code philosophy:", type: "list", choices: ["pragmatic", "principled", "move-fast"], default: prev.philosophy || "pragmatic" },
+    { name: "testsFirst", message: "Test-first approach?", type: "confirm", default: prev.testsFirst ?? true },
+    { name: "minComments", message: "Minimal comments (self-documenting code)?", type: "confirm", default: prev.minComments ?? true },
+    { name: "uncertain", message: "When uncertain:", type: "list", choices: ["ask first", "try then check"], default: prev.uncertain || "try then check" },
+    { name: "anti", message: "Anti-patterns (comma-separated):", default: prev.anti || "over-engineering, unnecessary abstractions, premature optimization" },
   ]);
 
   const soul = `# Soul
@@ -102,11 +154,12 @@ ${answers.anti.split(",").map((p: string) => `- ${p.trim()}`).join("\n")}
 async function stepUser(ws: string) {
   step(4, 8, "USER.md — About You");
 
+  const prev = parseUserDefaults(ws);
   const answers = await inquirer.prompt([
-    { name: "name", message: "Name/handle:", default: "" },
-    { name: "role", message: "Role:", default: "software architect" },
-    { name: "langs", message: "Primary languages:", default: "TypeScript, Python, Go" },
-    { name: "gpu", message: "GPU for local inference (or 'none'):", default: "none" },
+    { name: "name", message: "Name/handle:", default: prev.name || "" },
+    { name: "role", message: "Role:", default: prev.role || "software architect" },
+    { name: "langs", message: "Primary languages:", default: prev.langs || "TypeScript, Python, Go" },
+    { name: "gpu", message: "GPU for local inference (or 'none'):", default: prev.gpu || "none" },
   ]);
 
   const userMd = `# User Profile
@@ -131,16 +184,17 @@ async function stepUser(ws: string) {
 async function stepComms(ws: string, config: ForgeConfig): Promise<ForgeConfig> {
   step(5, 8, "Communication");
 
+  const isEnabled = (p: string) => config.communication.outbound.find(e => e.provider === p)?.enabled ?? false;
   const { outbound } = await inquirer.prompt([{
     name: "outbound",
     message: "Outbound notifications (select all that apply):",
     type: "checkbox",
     choices: [
-      { name: "Discord Webhook", value: "discord_webhook" },
-      { name: "ntfy.sh push notifications", value: "ntfy" },
-      { name: "Slack Webhook", value: "slack_webhook" },
-      { name: "Email (SMTP)", value: "email" },
-      { name: "Generic Webhook", value: "webhook_generic" },
+      { name: "Discord Webhook", value: "discord_webhook", checked: isEnabled("discord_webhook") },
+      { name: "ntfy.sh push notifications", value: "ntfy", checked: isEnabled("ntfy") },
+      { name: "Slack Webhook", value: "slack_webhook", checked: isEnabled("slack_webhook") },
+      { name: "Email (SMTP)", value: "email", checked: isEnabled("email") },
+      { name: "Generic Webhook", value: "webhook_generic", checked: isEnabled("webhook_generic") },
     ],
   }]);
 
@@ -153,17 +207,17 @@ async function stepComms(ws: string, config: ForgeConfig): Promise<ForgeConfig> 
     entry.enabled = true;
 
     if (provider === "discord_webhook") {
-      const { url } = await inquirer.prompt([{ name: "url", message: "Discord webhook URL:" }]);
+      const { url } = await inquirer.prompt([{ name: "url", message: "Discord webhook URL:", default: entry.config.webhookUrl || "" }]);
       entry.config.webhookUrl = url;
     } else if (provider === "ntfy") {
       const a = await inquirer.prompt([
-        { name: "topic", message: "ntfy topic:", default: "tasksmith" },
-        { name: "server", message: "ntfy server:", default: "https://ntfy.sh" },
+        { name: "topic", message: "ntfy topic:", default: entry.config.topic || "tasksmith" },
+        { name: "server", message: "ntfy server:", default: entry.config.server || "https://ntfy.sh" },
       ]);
       entry.config.topic = a.topic;
       entry.config.server = a.server;
     } else if (provider === "slack_webhook") {
-      const { url } = await inquirer.prompt([{ name: "url", message: "Slack webhook URL:" }]);
+      const { url } = await inquirer.prompt([{ name: "url", message: "Slack webhook URL:", default: entry.config.webhookUrl || "" }]);
       entry.config.webhookUrl = url;
     }
   }
@@ -171,22 +225,25 @@ async function stepComms(ws: string, config: ForgeConfig): Promise<ForgeConfig> 
   // Inbound
   console.log(`\n    File drop is always enabled (YAML in tasks/inbox/)`);
 
+  const discordBot = config.communication.inbound.find(e => e.provider === "discord_bot")!;
   const { enableDiscord } = await inquirer.prompt([
-    { name: "enableDiscord", message: "Enable Discord bot (bidirectional)?", type: "confirm", default: false },
+    { name: "enableDiscord", message: "Enable Discord bot (bidirectional)?", type: "confirm", default: discordBot.enabled },
   ]);
   if (enableDiscord) {
     const a = await inquirer.prompt([
-      { name: "token", message: "Bot token:" },
-      { name: "channel", message: "Channel ID (or empty for all):", default: "" },
+      { name: "token", message: "Bot token:", default: discordBot.config.botToken || "" },
+      { name: "channel", message: "Channel ID (or empty for all):", default: discordBot.config.channelId || "" },
     ]);
-    const entry = config.communication.inbound.find(e => e.provider === "discord_bot")!;
-    entry.enabled = true;
-    entry.config.botToken = a.token;
-    entry.config.channelId = a.channel;
+    discordBot.enabled = true;
+    discordBot.config.botToken = a.token;
+    discordBot.config.channelId = a.channel;
+  } else {
+    discordBot.enabled = false;
   }
 
+  const restApi = config.communication.inbound.find(e => e.provider === "rest_api")!;
   const { enableApi } = await inquirer.prompt([
-    { name: "enableApi", message: "Enable REST API (port 8420)?", type: "confirm", default: true },
+    { name: "enableApi", message: "Enable REST API (port 8420)?", type: "confirm", default: restApi.enabled },
   ]);
   config.communication.inbound.find(e => e.provider === "rest_api")!.enabled = enableApi;
 
@@ -211,13 +268,14 @@ async function stepModels(ws: string, config: ForgeConfig): Promise<ForgeConfig>
     const ollamaEntry = config.models.providers.find(e => e.provider === "ollama");
     if (ollamaEntry) ollamaEntry.enabled = true;
 
+    const ollamaEnabled = ollamaEntry?.enabled ?? true;
     const { useLocal } = await inquirer.prompt([
-      { name: "useLocal", message: "Use local models for summarization & embeddings?", type: "confirm", default: true },
+      { name: "useLocal", message: "Use local models for summarization & embeddings?", type: "confirm", default: ollamaEnabled },
     ]);
     if (useLocal) {
       const a = await inquirer.prompt([
-        { name: "embed", message: "Embedding model:", default: "nomic-embed-text" },
-        { name: "summarize", message: "Summarize model:", default: "qwen3:14b" },
+        { name: "embed", message: "Embedding model:", default: config.models.routing.embeddings?.model || "nomic-embed-text" },
+        { name: "summarize", message: "Summarize model:", default: config.models.routing.memory_summarize?.model || "qwen3:14b" },
       ]);
       config.models.routing.embeddings.model = a.embed;
       config.models.routing.memory_summarize.model = a.summarize;
@@ -277,6 +335,10 @@ async function stepSmokeTest(ws: string, config: ForgeConfig) {
 
 export async function runSetup(ws: string, config: ForgeConfig, stepName?: string) {
   header("TaskSmith Onboarding");
+
+  // Backup existing config before making changes
+  const backup = backupConfig(ws);
+  if (backup) console.log(`  ${chalk.dim(`Config backed up → ${backup}`)}`);
 
   if (!config || !config.communication) config = structuredClone(DEFAULT_CONFIG);
 

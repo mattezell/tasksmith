@@ -5,6 +5,19 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-02-18
+
+### Added
+- **Setup config backup** — `tasksmith setup` now creates a timestamped backup of the existing config file (e.g., `tasksmith.yaml.<timestamp>.bak`) before making any changes, preventing accidental loss of previous settings
+- **Setup defaults preservation** — re-running `tasksmith setup` now displays previously configured values as defaults for every prompt:
+  - SOUL.md settings (communication style, code philosophy, test preference, etc.) parsed from existing file
+  - USER.md settings (name, role, languages, GPU) parsed from existing file
+  - Outbound providers pre-checked based on currently enabled state
+  - Provider credentials (webhook URLs, bot tokens, ntfy topics) shown as defaults
+  - Inbound provider toggles (Discord bot, REST API) reflect current config
+  - Model routing selections (embedding model, summarize model) reflect current config
+- Pressing Enter on any prompt now carries the existing value forward unchanged
+
 ## [0.7.0] - 2025-02-18
 
 ### Added
@@ -182,6 +195,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration management with YAML and deep merge
 - Workspace scaffolding
 
+[0.7.1]: https://github.com/mattezell/tasksmith/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mattezell/tasksmith/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mattezell/tasksmith/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/mattezell/tasksmith/compare/v0.5.2...v0.5.3
