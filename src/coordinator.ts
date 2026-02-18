@@ -16,6 +16,8 @@ import { createAPIServer } from "./api.js";
 import { OUTBOUND_REGISTRY, createInboundProvider } from "./providers/comms/providers.js";
 import { MarkdownMemoryProvider, JSONLMemoryProvider, SessionArchiver, MEMORY_REGISTRY } from "./providers/memory/providers.js";
 import { PluginManager } from "./plugins.js";
+import { Scheduler } from "./scheduler.js";
+import { WorkerPool, POOL_DEFAULTS } from "./pool.js";
 import type {
   ForgeConfig, OutboundCommsProvider, InboundCommsProvider,
   MemoryProvider, InboundMessage, Task,
@@ -40,6 +42,8 @@ export class Coordinator {
   private scanInterval: ReturnType<typeof setInterval> | null = null;
   private shutdownRequested = false;
   private pluginManager: PluginManager;
+  private scheduler: Scheduler | null = null;
+  private pool: WorkerPool | null = null;
 
   constructor(workspace: string, config: ForgeConfig) {
     this.workspace = workspace;
@@ -212,13 +216,46 @@ export class Coordinator {
     ${line("")}
     ${line("  Press Ctrl+C to stop")}
     ${chalk.blue("╚" + "═".repeat(W) + "╝")}
-    `);
-    // Start inbox scanner (polling — belt + suspenders with chokidar in FileDropProvider)
-    this.scanInterval = setInterval(async () => {
-      if (!this.shutdownRequested) {
-        try { await this.engine.scanInbox(); } catch (e) { console.error("[coordinator] scan error:", e); }
-      }
+`);
+
+    // Initialize worker pool
+    const engineConfig = (this.config as any).engine || {};
+    const concurrency = engineConfig.concurrency || 1;
+    const poolLog = {
+      info: (m: string) => console.log(`[pool] ${m}`),
+      warn: (m: string) => console.log(chalk.yellow(`[pool] ${m}`)),
+      error: (m: string) => console.log(chalk.red(`[pool] ${m}`)),
+    };
+
+    this.pool = new WorkerPool(
+      this.workspace,
+      { concurrency, worktree: { ...POOL_DEFAULTS.worktree, ...(engineConfig.worktree || {}) } },
+      async (task, cwdOverride) => { await this.engine.execute(task, cwdOverride); },
+      poolLog,
+    );
+
+    // Pool-aware inbox scanner
+    this.scanInterval = setInterval(() => {
+      if (this.shutdownRequested) return;
+      try {
+        const tasks = this.engine.pickupAll();
+        for (const task of tasks) {
+          this.pool!.submit(task);
+        }
+      } catch (e) { console.error("[coordinator] scan error:", e); }
     }, 3000);
+
+    // Start scheduler if schedules are configured
+    const schedules = (this.config as any).schedules as Array<Record<string, unknown>> | undefined;
+    if (schedules && schedules.length > 0) {
+      const inboxDir = join(this.workspace, "tasks", "inbox");
+      this.scheduler = new Scheduler(
+        schedules as any,
+        inboxDir,
+        { info: (m) => console.log(`[scheduler] ${m}`), warn: (m) => console.log(chalk.yellow(`[scheduler] ${m}`)), error: (m) => console.log(chalk.red(`[scheduler] ${m}`)) },
+      );
+      this.scheduler.start();
+    }
 
     // Start inbound listeners
     const handler = this.handleInbound.bind(this);
@@ -246,6 +283,11 @@ export class Coordinator {
 
         try {
           if (this.scanInterval) clearInterval(this.scanInterval);
+          if (this.scheduler) this.scheduler.stop();
+          if (this.pool) {
+            this.pool.pause();
+            await this.pool.drain();
+          }
           await this.pluginManager.executeHooks("onShutdown");
           await this.pluginManager.deactivateAll();
           for (const p of this.inbound) {

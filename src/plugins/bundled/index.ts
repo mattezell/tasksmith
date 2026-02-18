@@ -21,12 +21,14 @@ import type { PluginActivateFn } from "../../plugins.js";
 
 // Lazy imports — unused plugins add zero startup cost
 const BUNDLED_PLUGINS: Record<string, () => Promise<{ default: PluginActivateFn }>> = {
-  github:   () => import("./github.js"),
-  metrics:  () => import("./metrics.js"),
-  docker:   () => import("./docker.js"),
-  jira:     () => import("./jira.js"),
-  postgres: () => import("./postgres.js"),
-  proxmox:  () => import("./proxmox.js"),
+  github:     () => import("./github.js"),
+  metrics:    () => import("./metrics.js"),
+  docker:     () => import("./docker.js"),
+  jira:       () => import("./jira.js"),
+  postgres:   () => import("./postgres.js"),
+  proxmox:    () => import("./proxmox.js"),
+  cloudflare: () => import("./cloudflare.js"),
+  "semantic-memory": () => import("./semantic-memory.js"),
 };
 
 /** List of all bundled plugin names */
@@ -72,5 +74,13 @@ export const BUNDLED_PLUGIN_INFO: Record<string, { description: string; configKe
   proxmox: {
     description: "Proxmox VM provisioning — full OS-level isolation for task execution",
     configKeys: ["host", "tokenId", "tokenSecret", "node", "templateVmId"],
+  },
+  cloudflare: {
+    description: "Cloudflare Pages deployments — auto-deploy, rollback, cache purge",
+    configKeys: ["accountId", "apiToken", "pages.projectName", "pages.deployDir", "purgeCache"],
+  },
+  "semantic-memory": {
+    description: "Vector-based semantic memory search via local Ollama embeddings",
+    configKeys: ["ollamaUrl", "model", "embeddingsFile", "maxResults", "minSimilarity"],
   },
 };

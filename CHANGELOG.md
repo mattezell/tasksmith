@@ -5,6 +5,90 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-02-18
+
+### Added
+- **Parallel task execution** — configurable worker pool with `engine.concurrency` setting. Tasks are priority-queued (urgent → high → normal → low) and executed concurrently up to the concurrency limit.
+- **Git worktree isolation** — each parallel task can run in its own `git worktree` branch, preventing clobbering between concurrent tasks. Three strategies:
+  - `pr` (default) — commits, pushes, opens a GitHub PR via `gh` CLI on success
+  - `auto-merge` — merges directly into base branch (falls back to PR on conflicts)
+  - `branch-only` — commits and pushes the branch for manual handling
+- **Worktree cleanup** — failed tasks discard their worktree automatically. No damage to main.
+- **Task-level worktree overrides** — `params.worktree: false`, `params.worktree_strategy`, `params.worktree_branch`
+- **`tasksmith workers`** CLI command — shows pool config, worktree settings, active worktrees, git/gh availability
+- **Multi-provider embeddings** — semantic-memory plugin now supports Ollama (local), OpenAI (`text-embedding-3-small`), and Gemini (`text-embedding-004`) as embedding backends. Configured via `provider` field. API keys from config or environment variables.
+- **Engine.pickupAll()** — new method for batch inbox scanning used by worker pool
+
+### Changed
+- **Coordinator** uses worker pool instead of sequential scan loop. All task execution now goes through the pool (backwards-compatible at `concurrency: 1`).
+- **Engine.execute()** accepts optional `cwdOverride` parameter for worktree-isolated execution
+- **Engine.invokeCC()** and **validate()** respect `cwdOverride` (worktree path takes priority over project dir)
+- Semantic memory config: `model` renamed to `ollamaModel`, new fields for `openaiApiKey`, `openaiModel`, `geminiApiKey`, `geminiModel`
+- Embedding store tags records with `provider:model` identifier; detects model changes and warns about rebuild
+
+### Architecture
+- New `src/pool.ts` (484 lines) — `WorkerPool` class and `WorktreeManager` class
+- Core: 4,194 lines | Plugins: 2,582 lines | Total: 6,776 lines
+
+## [0.6.0] - 2025-02-18
+
+### Added
+- **Scheduled tasks** — cron-based task scheduling with standard 5-field cron syntax (minute hour day-of-month month day-of-week). Supports wildcards, ranges, steps, lists. Creates task files in inbox on schedule.
+  - Human-readable schedule descriptions ("daily at 02:00", "every 6 hours", "Mon at 09:00")
+  - Checks every 30 seconds, fires once per minute
+  - Graceful startup/shutdown
+- **`tasksmith schedule`** CLI command — shows all configured schedules with human-readable descriptions, templates, and enabled status
+- **Semantic memory plugin** — vector-based semantic search across task history and memory entries via local Ollama embeddings
+  - `tasksmith semantic --query "authentication refactoring"` returns conceptually related entries ranked by cosine similarity
+  - `tasksmith semantic --stats` shows embedding count, model, store file, Ollama status
+  - Persists embeddings to disk (JSON) for fast startup
+  - Falls back gracefully if Ollama unavailable
+  - Hooks: embeds memory entries on flush, embeds task summaries after execution
+- **`npm run stats`** — automated stats script (`scripts/update-stats.mjs`) counts core vs plugin lines, picks marketing bucket, updates site/index.html and README.md numbers sections automatically
+- **Marketing bucket: "under 5,000 lines"** — replaced "under 3,000" to provide headroom for growth while staying honest. Framing: "every module fits in your head."
+
+### Changed
+- Coordinator starts scheduler after inbox scanner if schedules are configured in `tasksmith.yaml`
+- Scheduler stops gracefully on shutdown
+- Version bumped from 0.5.3 to 0.6.0
+
+### Architecture
+- New `src/scheduler.ts` (237 lines) — lightweight cron parser and scheduler with zero dependencies
+- New `src/plugins/bundled/semantic-memory.ts` (329 lines at initial release)
+- Core: 3,592 lines | Plugins: 2,460 lines (8 plugins) | Total: 6,052 lines
+
+## [0.5.3] - 2025-02-18
+
+### Added
+- **Cloudflare plugin** — Cloudflare Pages deployment automation (487 lines)
+  - `tasksmith cf deploy` — deploys to Cloudflare Pages via `wrangler pages deploy`
+  - `tasksmith cf status` — API token validity, project info, latest deployment
+  - `tasksmith cf deployments` — lists last 10 deployments with timestamps
+  - `tasksmith cf rollback --deployment-id <id>` — rollback via Cloudflare API
+  - Auto-deploy on task success (configurable with pattern matching)
+  - Optional CDN cache purge after deploy
+  - Task-level overrides: `params.cf_deploy`, `cf_deploy_dir`, `cf_branch`
+
+### Changed
+- Bundled plugin count: 7 → 8 (added cloudflare)
+- Bundled plugin registry updated with lazy-loaded cloudflare import
+
+## [0.5.2] - 2025-02-17
+
+### Fixed
+- **Clean shutdown** — process exits cleanly instead of hanging on Ctrl+C
+- **Force exit on hang** — safety timeout ensures process terminates even if providers stall
+- **Hardcoded version removed** — version now read dynamically instead of hardcoded in banner
+- **Startup banner formatting** — dynamic box width, cleaner layout
+
+### Changed
+- Various formatting and display improvements throughout CLI output
+
+## [0.5.1] - 2025-02-17
+
+### Fixed
+- Minor formatting fixes and cleanup from v0.5.0 release
+
 ## [0.5.0] - 2025-02-17
 
 ### Added
@@ -98,6 +182,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration management with YAML and deep merge
 - Workspace scaffolding
 
+[0.7.0]: https://github.com/mattezell/tasksmith/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/mattezell/tasksmith/compare/v0.5.3...v0.6.0
+[0.5.3]: https://github.com/mattezell/tasksmith/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/mattezell/tasksmith/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/mattezell/tasksmith/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mattezell/tasksmith/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mattezell/tasksmith/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/mattezell/tasksmith/compare/v0.3.0...v0.3.1

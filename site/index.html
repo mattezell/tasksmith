@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TaskSmith — Agent Orchestration for Claude Code</title>
-<meta name="description" content="Turn Claude Code into a task engine. Drop a YAML file, get production code back. Compiled prompts, auto-retry, memory, notifications, plugins.">
+<meta name="description" content="Turn Claude Code into a parallel task engine. Drop YAML files, get PRs back. Compiled prompts, auto-retry, memory, worktree isolation, notifications, 8 plugins.">
 <meta property="og:title" content="TaskSmith — Agent Orchestration for Claude Code">
-<meta property="og:description" content="Turn Claude Code into a task engine. Under 3,000 lines of TypeScript. Zero bloat.">
+<meta property="og:description" content="Parallel task execution with git worktree isolation. Under 5,000 lines of core TypeScript. Zero bloat.">
 <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
@@ -87,29 +87,29 @@
       <p>SOUL.md, USER.md, conventions, memory, and project context automatically assembled into every prompt. Claude always has full context. You never repeat yourself.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-tag">02 // VALIDATION</div>
+      <div class="feature-tag">02 // PARALLEL</div>
+      <h3>Worker Pool</h3>
+      <p>Run multiple tasks simultaneously. Configurable concurrency with priority queuing. Each task gets its own git worktree — auto-opens a PR on success, discards on failure.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">03 // VALIDATION</div>
       <h3>Ralph Loop</h3>
       <p>Define a validation command. TaskSmith runs Claude Code, checks output, feeds errors back, retries. Iterate until <code>npm test</code> passes.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-tag">03 // PERSISTENCE</div>
+      <div class="feature-tag">04 // PERSISTENCE</div>
       <h3>Three-Tier Memory</h3>
-      <p>Hot memory loads every prompt. Warm JSONL logs are searchable. Cold archives compressed. Claude remembers across tasks — decisions, preferences, patterns.</p>
+      <p>Hot memory loads every prompt. Warm JSONL logs are searchable. Cold archives compressed. Semantic search via local or cloud embeddings. Claude remembers across tasks.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-tag">04 // COMMS</div>
+      <div class="feature-tag">05 // COMMS</div>
       <h3>Notifications Everywhere</h3>
       <p>Discord, Slack, ntfy.sh, email, webhooks. Know when tasks finish. Get results on your phone while doing something else.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-tag">05 // INPUT</div>
-      <h3>Inbound Commands</h3>
-      <p>Submit tasks from Discord, REST API, or file drop. <code>@forge fix the auth bug in my-api</code> parses to a task with the right template and priority.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-tag">06 // EXTEND</div>
-      <h3>Plugin System</h3>
-      <p><strong>6 official plugins</strong> ship with the CLI — GitHub, Metrics, Docker, JIRA, Postgres, Proxmox. Or build your own: <code>tasksmith plugin create</code>.</p>
+      <div class="feature-tag">06 // SCHEDULE</div>
+      <h3>Cron & Plugins</h3>
+      <p>Scheduled tasks via cron. <strong>8 official plugins</strong> ship bundled — GitHub, Metrics, Docker, JIRA, Postgres, Proxmox, Cloudflare, Semantic Memory. Or build your own.</p>
     </div>
   </div>
 </section>
@@ -152,9 +152,9 @@
 <!-- NUMBERS -->
 <section class="numbers">
   <div class="numbers-grid">
-    <div class="num-item"><div class="num">&lt;3k</div><div class="num-label">Lines of core TypeScript</div></div>
+    <div class="num-item"><div class="num"><5k</div><div class="num-label">Lines of core TypeScript</div></div>
     <div class="num-item"><div class="num">0</div><div class="num-label">External frameworks</div></div>
-    <div class="num-item"><div class="num">6</div><div class="num-label">Official plugins</div></div>
+    <div class="num-item"><div class="num">8</div><div class="num-label">Official plugins</div></div>
     <div class="num-item"><div class="num">10</div><div class="num-label">Notification providers</div></div>
   </div>
 </section>
@@ -162,19 +162,21 @@
 <!-- PLUGINS -->
 <section class="plugins-section" id="plugins">
   <span class="section-label">plugins.official</span>
-  <h2 class="section-title">Six plugins.<br>Zero installs.</h2>
+  <h2 class="section-title">8 plugins.<br>Zero installs.</h2>
   <p class="section-sub">Official plugins ship with the CLI. Enable any with one line in config. Lazy-loaded — disabled plugins cost nothing.</p>
 
   <div class="plugin-demo">
     <div class="plugin-code">
       <span style="color:var(--fg3)"># tasksmith.yaml</span><br>
       <span style="color:var(--cyan)">plugins</span><span style="color:var(--fg3)">:</span><br>
-      &nbsp;&nbsp;- <span style="color:var(--green)">github</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Issues/PRs on fail/success</span><br>
-      &nbsp;&nbsp;- <span style="color:var(--green)">metrics</span>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Execution analytics</span><br>
-      &nbsp;&nbsp;- <span style="color:var(--green)">docker</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Container isolation</span><br>
-      &nbsp;&nbsp;- <span style="color:var(--green)">jira</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Ticket integration</span><br>
-      &nbsp;&nbsp;- <span style="color:var(--green)">postgres</span>&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># SQL task history</span><br>
-      &nbsp;&nbsp;- <span style="color:var(--green)">proxmox</span>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># VM provisioning</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">github</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Issues/PRs on fail/success</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">metrics</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Execution analytics</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">docker</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Container isolation</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">jira</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Ticket integration</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">postgres</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># SQL task history</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">proxmox</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># VM provisioning</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">cloudflare</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--fg3)"># Pages deploy/rollback</span><br>
+      &nbsp;&nbsp;- <span style="color:var(--green)">semantic-memory</span>&nbsp;&nbsp;<span style="color:var(--fg3)"># Vector search</span><br>
     </div>
     <div class="plugin-steps">
       <div class="plugin-step">
@@ -192,10 +194,17 @@
         </div>
       </div>
       <div class="plugin-step">
-        <div class="plugin-step-num">🐳</div>
+        <div class="plugin-step-num">🔍</div>
         <div>
-          <h4>Docker</h4>
-          <p>Run tasks in containers. Resource limits, project mounts, per-task image overrides. Auto-cleanup on completion.</p>
+          <h4>Semantic Memory</h4>
+          <p>Vector-based search over task history via Ollama (local), OpenAI, or Gemini embeddings. <code>tasksmith semantic --query "auth refactor"</code></p>
+        </div>
+      </div>
+      <div class="plugin-step">
+        <div class="plugin-step-num">☁</div>
+        <div>
+          <h4>Cloudflare</h4>
+          <p>Deploy to Cloudflare Pages on task success. Rollback, cache purge, deployment history. <code>tasksmith cf --action deploy</code></p>
         </div>
       </div>
       <div class="plugin-step">
@@ -228,7 +237,7 @@
 ║    ███████║██║ ╚═╝ ██║██║   ██║   ██║  ██║                         ║
 ║    ╚══════╝╚═╝     ╚═╝╚═╝   ╚═╝   ╚═╝  ╚═╝                         ║
 ║                                                                    ║
-║    Node 1 of 1  ·  SysOp: Matt  ·  EST 2025  ·  MIT License       ║
+║    Node 1 of 1  ·  SysOp: Matt  ·  EST 2025  ·  MIT License        ║
 ║                                                                    ║
 ╚════════════════════════════════════════════════════════════════════╝
 </pre>
@@ -238,7 +247,7 @@
 <section class="creator">
   <div class="creator-label">SysOp</div>
   <h3>Matt</h3>
-  <p>Software architect from Birmingham, AL. Built TaskSmith because OpenClaw's 430k lines were too many and Claude Code's zero orchestration wasn't enough. Under 3,000 lines of core TypeScript, six bundled plugins, and a full plugin system — the middle ground that actually ships.</p>
+  <p>Software architect from Birmingham, AL. Built TaskSmith because OpenClaw's 430k lines were too many and Claude Code's zero orchestration wasn't enough. Under 5,000 lines of core TypeScript — every module fits in your head. 8 bundled plugins and a full plugin system for everything else.</p>
   <div class="creator-links">
     <a href="https://github.com/mattezell">
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>

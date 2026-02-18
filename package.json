@@ -1,6 +1,6 @@
 {
   "name": "tasksmith-cli",
-  "version": "0.5.2",
+  "version": "0.7.0",
   "description": "Lightweight agent orchestration for Claude Code",
   "type": "module",
   "main": "dist/index.js",
@@ -17,7 +17,8 @@
     "lint": "eslint src/",
     "clean": "rm -rf dist/",
     "prepublishOnly": "npm run build",
-    "release": "npm run build && npm publish"
+    "release": "npm run build && npm publish",
+    "stats": "node scripts/update-stats.mjs"
   },
   "files": [
     "dist/",

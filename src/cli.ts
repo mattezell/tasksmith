@@ -411,6 +411,102 @@ program
     console.log();
   });
 
+// ── WORKERS ─────────────────────────────────────────────────────────
+
+program
+  .command("workers")
+  .description("Show worker pool and worktree configuration")
+  .action(async () => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const config = loadConfig(ws);
+    const engine = (config as any).engine || {};
+    const wt = engine.worktree || {};
+
+    console.log(chalk.bold("\n  Worker Pool Configuration\n"));
+    console.log(`    Concurrency:   ${chalk.bold(engine.concurrency || 1)}`);
+    console.log(`    Worktree:      ${wt.enabled ? chalk.green("enabled") : chalk.dim("disabled")}`);
+
+    if (wt.enabled) {
+      console.log(`    Strategy:      ${chalk.cyan(wt.strategy || "pr")}`);
+      console.log(`    Base branch:   ${wt.baseBranch || "main"}`);
+      console.log(`    PR labels:     ${(wt.prLabels || ["tasksmith"]).join(", ")}`);
+      console.log(`    Cleanup:       success=${wt.cleanupOnSuccess ?? true}, failure=${wt.cleanupOnFailure ?? true}`);
+
+      // Check git and gh
+      const { spawnSync } = await import("node:child_process");
+      const gitOk = spawnSync("git", ["rev-parse", "--git-dir"], { cwd: ws, encoding: "utf-8", stdio: "pipe" }).status === 0;
+      const ghOk = spawnSync("gh", ["--version"], { encoding: "utf-8", stdio: "pipe" }).status === 0;
+
+      console.log(`\n    Git repo:      ${gitOk ? chalk.green("yes") : chalk.red("no")}`);
+      console.log(`    gh CLI:        ${ghOk ? chalk.green("available") : chalk.yellow("not found (needed for PR strategy)")}`);
+
+      if (gitOk) {
+        // List active TaskSmith worktrees
+        const res = spawnSync("git", ["worktree", "list", "--porcelain"], { cwd: ws, encoding: "utf-8", stdio: "pipe" });
+        if (res.status === 0) {
+          const tsWorktrees = (res.stdout || "").split("\n\n")
+            .filter(block => block.includes("tasksmith/"));
+          if (tsWorktrees.length > 0) {
+            console.log(chalk.bold(`\n    Active Worktrees (${tsWorktrees.length}):`));
+            for (const block of tsWorktrees) {
+              const branch = block.match(/branch refs\/heads\/(.+)/)?.[1] || "?";
+              console.log(`      ${chalk.dim("→")} ${branch}`);
+            }
+          }
+        }
+      }
+    } else {
+      console.log(chalk.dim("\n    Enable with:"));
+      console.log(chalk.dim("    engine:"));
+      console.log(chalk.dim("      concurrency: 3"));
+      console.log(chalk.dim("      worktree:"));
+      console.log(chalk.dim('        enabled: true'));
+      console.log(chalk.dim('        strategy: "pr"'));
+    }
+
+    console.log();
+  });
+
+// ── SCHEDULE ────────────────────────────────────────────────────────
+
+program
+  .command("schedule")
+  .description("Show configured task schedules")
+  .action(async () => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const config = loadConfig(ws);
+    const schedules = (config as any).schedules as Array<Record<string, unknown>> | undefined;
+
+    console.log(chalk.bold("\n  Task Schedules\n"));
+
+    if (!schedules || schedules.length === 0) {
+      console.log(chalk.dim("    No schedules configured."));
+      console.log(chalk.dim("\n    Add to tasksmith.yaml:"));
+      console.log(chalk.dim('    schedules:'));
+      console.log(chalk.dim('      - name: "nightly-consolidation"'));
+      console.log(chalk.dim('        template: heartbeat'));
+      console.log(chalk.dim('        prompt: "Consolidate memory"'));
+      console.log(chalk.dim('        cron: "0 2 * * *"'));
+      console.log(chalk.dim('        enabled: true'));
+      console.log();
+      return;
+    }
+
+    const { describeCron } = await import("./scheduler.js");
+
+    for (const s of schedules) {
+      const enabled = s.enabled !== false;
+      const icon = enabled ? chalk.green("✓") : chalk.dim("○");
+      const name = (s.name as string || "unnamed").padEnd(24);
+      const desc = describeCron(s.cron as string || "");
+      const template = s.template as string || "?";
+
+      console.log(`    ${icon} ${chalk.bold(name)} ${chalk.cyan(template.padEnd(14))} ${desc}`);
+      if (s.project) console.log(`      ${chalk.dim(`project: ${s.project}`)}`);
+    }
+    console.log();
+  });
+
 // ── PARSE & RUN ────────────────────────────────────────────────────
 
 program.parse();

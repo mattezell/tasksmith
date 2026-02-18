@@ -109,7 +109,7 @@ export class TaskEngine {
 
   // ── Claude Code Invocation ─────────────────────────────────────────
 
-  private invokeCC(prompt: string, task: Task): { ok: boolean; output?: string; error?: string } {
+  private invokeCC(prompt: string, task: Task, cwdOverride?: string): { ok: boolean; output?: string; error?: string } {
     const ccProviders = this.config.models?.providers || [];
     const ccCfg = ccProviders.find((p: any) => p.provider === "claude_code")?.config || {};
     const tools: string[] = ccCfg.defaultAllowedTools || ["Write", "Read", "Edit", "Bash", "Task"];
@@ -120,9 +120,12 @@ export class TaskEngine {
     const dd = join(this.workspace, "directives");
     if (existsSync(dd)) args.push("--add-dir", dd);
 
-    const cwd = task.project
-      ? join(this.workspace, "projects", task.project)
-      : undefined;
+    // cwdOverride (worktree) takes priority, then project dir, then undefined
+    let cwd: string | undefined = cwdOverride;
+    if (!cwd && task.project) {
+      const pd = join(this.workspace, "projects", task.project);
+      if (existsSync(pd)) cwd = pd;
+    }
 
     const timeout = (this.defaults.timeoutMinutes || 30) * 60 * 1000;
 
@@ -149,11 +152,15 @@ export class TaskEngine {
 
   // ── Validation ─────────────────────────────────────────────────────
 
-  private validate(task: Task): { passed: boolean; output: string } {
+  private validate(task: Task, cwdOverride?: string): { passed: boolean; output: string } {
     const cmd = task.params.validation_command as string | undefined;
     if (!cmd) return { passed: true, output: "" };
 
-    const cwd = task.project ? join(this.workspace, "projects", task.project) : undefined;
+    let cwd: string | undefined = cwdOverride;
+    if (!cwd && task.project) {
+      const pd = join(this.workspace, "projects", task.project);
+      if (existsSync(pd)) cwd = pd;
+    }
 
     try {
       const result = spawnSync("sh", ["-c", cmd], {
@@ -169,12 +176,12 @@ export class TaskEngine {
 
   // ── Task Execution ─────────────────────────────────────────────────
 
-  async execute(task: Task): Promise<void> {
+  async execute(task: Task, cwdOverride?: string): Promise<void> {
     task.status = "active";
     task.startedAt = new Date().toISOString();
     this.processing.add(task.id);
 
-    console.log(`[engine] Executing ${task.id}: template=${task.template} model=${task.model}`);
+    console.log(`[engine] Executing ${task.id}: template=${task.template} model=${task.model}${cwdOverride ? ` cwd=${cwdOverride}` : ""}`);
 
     try {
       const isRalph = task.template === "ralph-loop" || Boolean(task.params.validation_command);
@@ -189,7 +196,7 @@ export class TaskEngine {
           prompt += `\n\n<previous_error>\nIteration ${i - 1} failed:\n${lastErr}\nFix the issues and try again.\n</previous_error>`;
         }
 
-        const result = this.invokeCC(prompt, task);
+        const result = this.invokeCC(prompt, task, cwdOverride);
 
         if (!result.ok) {
           lastErr = result.error || "Unknown error";
@@ -203,7 +210,7 @@ export class TaskEngine {
         }
 
         if (isRalph) {
-          const v = this.validate(task);
+          const v = this.validate(task, cwdOverride);
           if (v.passed) {
             task.result = `Passed after ${i} iteration(s)`;
             task.status = "completed";
@@ -320,6 +327,18 @@ export class TaskEngine {
   // ── Inbox Processing ───────────────────────────────────────────────
 
   async processFile(filePath: string): Promise<void> {
+    return this.processFileAndExecute(filePath);
+  }
+
+  /** Parse and move to active, then execute (legacy sequential path) */
+  private async processFileAndExecute(filePath: string): Promise<void> {
+    const task = this.pickupTask(filePath);
+    if (!task) return;
+    await this.execute(task);
+  }
+
+  /** Parse task from file, move to active dir. Returns task or null on error. */
+  pickupTask(filePath: string): Task | null {
     const fileName = filePath.split("/").pop() || filePath;
     try {
       const content = readFileSync(filePath, "utf-8");
@@ -330,11 +349,27 @@ export class TaskEngine {
       renameSync(filePath, activeFile);
 
       console.log(`[engine] Picked up ${task.id}`);
-      await this.execute(task);
+      return task;
     } catch (e: any) {
       console.error(`[engine] Failed to process ${fileName}: ${e.message}`);
       try { renameSync(filePath, join(this.failed, fileName)); } catch { /* ignore */ }
+      return null;
     }
+  }
+
+  /** Scan inbox and return all pending tasks (for pool-based execution) */
+  pickupAll(): Task[] {
+    const files = readdirSync(this.inbox)
+      .filter(f => isTaskFile(f))
+      .filter(f => !f.startsWith("."))
+      .sort();
+
+    const tasks: Task[] = [];
+    for (const f of files) {
+      const task = this.pickupTask(join(this.inbox, f));
+      if (task) tasks.push(task);
+    }
+    return tasks;
   }
 
   async scanInbox(): Promise<void> {

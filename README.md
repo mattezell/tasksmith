@@ -4,7 +4,7 @@ Lightweight agent orchestration built on [Claude Code](https://docs.anthropic.co
 
 Drop a task file. Walk away. Come back to passing tests.
 
-TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Under 3,000 lines of core TypeScript. Six bundled plugins. Zero frameworks. MIT licensed.
+TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Schedule recurring tasks with cron. Under 5,000 lines of core TypeScript. 8 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
 
 ```bash
 npm install -g tasksmith-cli
@@ -91,6 +91,59 @@ Define a validation command. TaskSmith runs Claude Code, checks the output, feed
 
 After every task, the engine writes a summary to all tiers. Over time, Claude accumulates real project knowledge.
 
+### Parallel Execution
+
+Run multiple tasks simultaneously with a configurable worker pool:
+
+```yaml
+engine:
+  concurrency: 3    # max parallel tasks (default: 1)
+```
+
+Tasks are priority-queued (urgent → high → normal → low). The pool dequeues up to `concurrency` tasks and runs them in parallel. When one finishes, the next in queue starts automatically. CLI: `tasksmith workers` shows pool config and active worktrees.
+
+### Git Worktree Isolation
+
+Each parallel task can run in its own isolated git worktree — no clobbering:
+
+```yaml
+engine:
+  concurrency: 3
+  worktree:
+    enabled: true
+    strategy: "pr"           # "pr" | "auto-merge" | "branch-only"
+    baseBranch: "main"
+    prLabels: ["tasksmith", "automated"]
+```
+
+| Strategy | On success |
+|----------|-----------|
+| **`pr`** (default) | Commits, pushes, opens a GitHub PR via `gh` CLI |
+| **`auto-merge`** | Merges into base branch (falls back to PR on conflicts) |
+| **`branch-only`** | Pushes the branch — you decide what to do |
+
+On failure, the worktree is discarded. No damage to main. Override per-task with `params.worktree_strategy` or disable with `params.worktree: false`.
+
+### Scheduled Tasks
+
+Recurring tasks via cron syntax — memory consolidation, health checks, reports:
+
+```yaml
+schedules:
+  - name: "nightly-consolidation"
+    template: heartbeat
+    prompt: "Consolidate memory, prune stale entries"
+    cron: "0 2 * * *"
+    enabled: true
+
+  - name: "weekly-review"
+    template: research
+    prompt: "Generate weekly progress report"
+    cron: "0 9 * * 1"
+```
+
+CLI: `tasksmith schedule` shows all configured schedules with human-readable descriptions.
+
 ---
 
 ## Workspace Modes
@@ -171,7 +224,7 @@ List all templates and their sources: `tasksmith templates`
 
 ## Official Plugins
 
-Six plugins ship with `tasksmith-cli` — no separate install. Enable in config:
+8 plugins ship with `tasksmith-cli` — no separate install. Enable in config:
 
 ```yaml
 plugins:
@@ -188,6 +241,8 @@ plugins:
 | **jira** | JIRA ticket integration. Create on failure, transition to Done on success. Config: `host`, `email`, `apiToken`, `projectKey` |
 | **postgres** | PostgreSQL task history. Auto-creates tables, full metadata, SQL queryable. CLI: `tasksmith pg`. Requires `npm install pg` |
 | **proxmox** | Proxmox VM provisioning. Clone from templates, snapshot/rollback, lifecycle management. CLI: `tasksmith proxmox` |
+| **cloudflare** | Cloudflare Pages deployments. Auto-deploy on task success, rollback, cache purge. Uses `wrangler` CLI. CLI: `tasksmith cf` |
+| **semantic-memory** | Vector-based semantic search over task history. Supports Ollama (local), OpenAI, or Gemini embeddings. CLI: `tasksmith semantic` |
 
 Plugins with config:
 
@@ -269,7 +324,7 @@ The Discord bot parses natural language:
 
 ```bash
 tasksmith setup              # Interactive onboarding wizard
-tasksmith run                # Start the engine
+tasksmith run                # Start the engine (with worker pool)
 tasksmith submit             # Submit a task (interactive or with flags)
 tasksmith status             # Queue counts, infrastructure health, directives
 tasksmith init               # Initialize project-local config (.tasksmith/)
@@ -277,12 +332,16 @@ tasksmith templates          # List all templates with sources
 tasksmith info               # Show workspace resolution and config paths
 tasksmith doctor             # Diagnose common issues
 tasksmith memory             # Browse/search memory (--hot, --search, --recent)
+tasksmith schedule           # Show configured task schedules
+tasksmith workers            # Show worker pool config and active worktrees
 tasksmith plugin list        # List bundled + community plugins
 tasksmith plugin create <n>  # Scaffold a new plugin
 tasksmith metrics            # Task execution stats (metrics plugin)
 tasksmith docker             # Container status (docker plugin)
 tasksmith pg                 # Query task history (postgres plugin)
 tasksmith proxmox            # VM status (proxmox plugin)
+tasksmith cf                 # Cloudflare: deploy, status, rollback (cloudflare plugin)
+tasksmith semantic           # Semantic memory search (semantic-memory plugin)
 ```
 
 ### Submit Options
@@ -352,6 +411,19 @@ taskDefaults:
   model: sonnet
   priority: normal
 
+engine:
+  concurrency: 3           # parallel task slots
+  worktree:
+    enabled: true           # git worktree isolation
+    strategy: "pr"          # "pr" | "auto-merge" | "branch-only"
+    baseBranch: "main"
+
+schedules:
+  - name: "nightly-consolidation"
+    template: heartbeat
+    prompt: "Consolidate memory"
+    cron: "0 2 * * *"
+
 communication:
   outbound:
     - provider: ntfy
@@ -367,6 +439,14 @@ communication:
 plugins:
   - metrics
   - github
+  - name: semantic-memory
+    config:
+      provider: ollama
+  - name: cloudflare
+    config:
+      pages:
+        projectName: "my-site"
+        deployDir: "site/"
 ```
 
 Config layering: defaults → global `~/.tasksmith` → project-local `.tasksmith/`
@@ -377,21 +457,25 @@ Config layering: defaults → global `~/.tasksmith` → project-local `.tasksmit
 
 ```
 ┌──────────────────────────────────────────┐
-│              Coordinator                  │
+│              Coordinator                 │
 │  Wires providers, engine, API, plugins   │
 ├──────────┬───────────┬───────────────────┤
-│ Inbound  │  Engine   │    Outbound       │
-│ file_drop│  parse →  │ discord_webhook   │
-│ discord  │  context →│ ntfy, slack       │
-│ rest_api │  invoke → │ email, sms        │
-│ watched  │  validate→│ webhook           │
-│          │  retry →  │                   │
-│          │  finalize │                   │
+│ Inbound  │ Worker    │    Outbound       │
+│ file_drop│  Pool     │ discord_webhook   │
+│ discord  │  ┌──────┐ │ ntfy, slack       │
+│ rest_api │  │Engine│ │ email, sms        │
+│ watched  │  │ × N  │ │ webhook           │
+│          │  └──────┘ │                   │
+│          │ Worktree  │                   │
+│          │ Isolation  │                  │
 ├──────────┴───────────┴───────────────────┤
-│            Memory (hot/warm/cold)         │
+│        Scheduler (cron)                  │
+├──────────────────────────────────────────┤
+│            Memory (hot/warm/cold)        │
 ├──────────────────────────────────────────┤
 │    Bundled Plugins (github, metrics,     │
-│    docker, jira, postgres, proxmox)      │
+│    docker, jira, postgres, proxmox,      │
+│    cloudflare, semantic-memory)          │
 ├──────────────────────────────────────────┤
 │    Community Plugins (npm discovery)     │
 └──────────────────────────────────────────┘
@@ -402,28 +486,32 @@ Config layering: defaults → global `~/.tasksmith` → project-local `.tasksmit
 ```
 src/
 ├── config.ts             382 lines   Workspace resolution, config layering, template chain
-├── engine.ts             370 lines   Task lifecycle, Ralph Loop, Claude Code invocation
+├── engine.ts             405 lines   Task lifecycle, Ralph Loop, Claude Code invocation
 ├── plugins.ts            583 lines   Plugin loader, lifecycle hooks, scaffolding
-├── cli.ts                416 lines   Commander CLI (14 commands)
+├── cli.ts                512 lines   Commander CLI (18 commands)
+├── pool.ts               484 lines   Worker pool, concurrency, git worktree isolation
 ├── onboarding.ts         324 lines   8-step interactive setup wizard
-├── coordinator.ts        248 lines   Wires providers + engine + plugins
+├── coordinator.ts        289 lines   Wires providers + engine + pool + plugins
+├── scheduler.ts          237 lines   Cron-based task scheduling
 ├── types.ts              177 lines   Interfaces and provider contracts
 ├── api.ts                174 lines   REST API server
 ├── index.ts                7 lines   Package exports
 ├── providers/
-│   ├── comms/            370 lines   6 outbound + 4 inbound providers
-│   └── memory/           250 lines   Markdown, JSONL, compressed archives
+│   ├── comms/            366 lines   6 outbound + 4 inbound providers
+│   └── memory/           241 lines   Markdown, JSONL, compressed archives
 └── plugins/bundled/
-    ├── index.ts           76 lines   Lazy-load registry
+    ├── index.ts           86 lines   Lazy-load registry
     ├── github.ts         240 lines   GitHub Issues/PR integration
     ├── metrics.ts        296 lines   Execution analytics
     ├── docker.ts         246 lines   Container isolation
     ├── jira.ts           243 lines   JIRA ticket integration
     ├── postgres.ts       229 lines   PostgreSQL task history
-    └── proxmox.ts        295 lines   Proxmox VM provisioning
+    ├── proxmox.ts        295 lines   Proxmox VM provisioning
+    ├── cloudflare.ts     487 lines   Cloudflare Pages deployments
+    └── semantic-memory   451 lines   Vector-based semantic search
 ```
 
-**2,681 lines of core TypeScript** + 1,625 lines across 6 bundled plugins. Every module fits in your head.
+**Under 5,000 lines of core TypeScript** + 2,582 lines across 8 bundled plugins. Every module fits in your head.
 
 ### Design Principles
 
@@ -459,7 +547,10 @@ tasksmith doctor       # check prerequisites
 - **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
 
 Optional:
-- [Ollama](https://ollama.com/) for local model routing
+- [Git](https://git-scm.com/) for worktree isolation (you probably already have this)
+- [gh CLI](https://cli.github.com/) for automatic PR creation (worktree `pr` strategy)
+- [Ollama](https://ollama.com/) for local embeddings (semantic-memory plugin)
+- [wrangler](https://developers.cloudflare.com/workers/wrangler/) for Cloudflare deployments
 - [Docker](https://docker.com/) for container isolation plugin
 - [PostgreSQL](https://postgresql.org/) for postgres plugin (`npm install pg`)
 
