@@ -39,7 +39,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 
 interface CloudflarePagesConfig {
   projectName: string;
@@ -250,7 +250,7 @@ function deployPages(
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function cloudflarePlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function cloudflarePlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: CloudflareConfig = {
     ...DEFAULTS,
     ...options,

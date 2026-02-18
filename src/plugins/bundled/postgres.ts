@@ -21,7 +21,7 @@
  * Requires: npm install pg (peer dependency, installed by user)
  */
 
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 
 interface PostgresConfig {
   connectionString: string;
@@ -88,7 +88,7 @@ const taskStartTimes = new Map<string, number>();
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function postgresPlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function postgresPlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: PostgresConfig = { ...DEFAULTS, ...options } as PostgresConfig;
   config.connectionString = config.connectionString || process.env.TASKSMITH_PG_URL || process.env.DATABASE_URL || "";
 

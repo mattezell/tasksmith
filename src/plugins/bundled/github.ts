@@ -23,7 +23,7 @@
  *         labels: ["tasksmith", "automated"]
  */
 
-import type { ForgePluginContext } from "../../plugins.js";
+import type { PluginContext } from "../../plugins.js";
 import type { Notification, OutboundCommsProvider } from "../../types.js";
 
 interface GitHubPluginConfig {
@@ -163,7 +163,7 @@ class GitHubOutboundProvider implements OutboundCommsProvider {
 
 // ── Plugin Entry Point ──────────────────────────────────────────────
 
-export default function githubPlugin(ctx: ForgePluginContext, options: Record<string, unknown>): void {
+export default function githubPlugin(ctx: PluginContext, options: Record<string, unknown>): void {
   const config: GitHubPluginConfig = { ...DEFAULTS, ...options } as GitHubPluginConfig;
 
   // Allow env var override for token

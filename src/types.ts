@@ -145,7 +145,7 @@ export interface WorkspaceConfig {
   globalConfigDir: string;  // override global config location (default: ~/.tasksmith)
 }
 
-export interface ForgeConfig {
+export interface TaskSmithConfig {
   system: { name: string; version: string; logLevel: string };
   workspace: WorkspaceConfig;
   communication: {

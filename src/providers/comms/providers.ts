@@ -227,7 +227,7 @@ export class DiscordBotProvider implements InboundCommsProvider {
   constructor(config: Record<string, unknown>) {
     this.botToken = (config.botToken as string) || "";
     this.channelId = (config.channelId as string) || "";
-    this.prefix = (config.commandPrefix as string) || "@forge";
+    this.prefix = (config.commandPrefix as string) || "@tasksmith";
   }
 
   async start(callback: InboundCallback): Promise<void> {
