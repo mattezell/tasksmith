@@ -1,0 +1,4 @@
+workspace:
+  projectsDir: /home/matt/w/tasksmith
+taskDefaults:
+  model: sonnet

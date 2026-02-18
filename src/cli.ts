@@ -56,6 +56,7 @@ program
   .option("--model <model>", "Model (opus/sonnet)", "sonnet")
   .option("--priority <level>", "Priority (low/normal/high/urgent)", "normal")
   .option("--iterations <n>", "Max iterations", "5")
+  .option("--param <key=value>", "Task params (repeatable): --param validation_command=\"npm test\"", (val: string, acc: string[]) => { acc.push(val); return acc; }, [] as string[])
   .action(async (opts) => {
     const ws = resolveWorkspace(program.opts().dir);
     const inbox = join(ws, "tasks", "inbox");
@@ -84,6 +85,16 @@ program
       prompt = answers.prompt;
       opts.template = answers.template;
       opts.model = answers.model;
+
+      // Ask for validation command when ralph-loop or bug-hunt
+      if (["ralph-loop", "bug-hunt"].includes(opts.template) && !(opts.param || []).some((p: string) => p.startsWith("validation_command"))) {
+        const valAnswer = await inquirer.default.prompt([
+          { name: "validation_command", message: "Validation command (enter to skip):", type: "input", default: "" },
+        ]);
+        if (valAnswer.validation_command) {
+          (opts.param as string[]).push(`validation_command=${valAnswer.validation_command}`);
+        }
+      }
     }
 
     if (!prompt) {
@@ -93,7 +104,24 @@ program
 
     const now = new Date().toISOString();
     const taskId = `task-${now.slice(0, 19).replace(/[T:]/g, "").replace(/-/g, "")}-${uuidv4().slice(0, 6)}`;
-    const taskData = {
+
+    // Parse --param key=value pairs
+    const params: Record<string, unknown> = {};
+    for (const raw of (opts.param || []) as string[]) {
+      const eq = raw.indexOf("=");
+      if (eq === -1) {
+        params[raw] = true;
+      } else {
+        const key = raw.slice(0, eq);
+        let value: unknown = raw.slice(eq + 1);
+        if (value === "true") value = true;
+        else if (value === "false") value = false;
+        else if (/^\d+(\.\d+)?$/.test(value as string)) value = Number(value);
+        params[key] = value;
+      }
+    }
+
+    const taskData: Record<string, unknown> = {
       id: taskId,
       template: opts.template,
       prompt,
@@ -104,6 +132,10 @@ program
       created_at: now,
     };
 
+    if (Object.keys(params).length > 0) {
+      taskData.params = params;
+    }
+
     const dest = join(inbox, `${taskId}.yaml`);
     writeFileSync(dest, yaml.dump(taskData));
 
@@ -112,6 +144,9 @@ program
     console.log(`  Template: ${opts.template}`);
     console.log(`  Model:    ${opts.model}`);
     console.log(`  Priority: ${opts.priority}`);
+    if (Object.keys(params).length > 0) {
+      console.log(`  Params:   ${Object.entries(params).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+    }
     console.log(`  Prompt:   ${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}\n`);
   });
 

@@ -383,4 +383,14 @@ export async function runSetup(ws: string, config: ForgeConfig, stepName?: strin
     Re-run a step:  ${chalk.bold("tasksmith setup --step NAME")}
     Steps: prereqs, dirs, soul, user, comms, models, memory, test
 `);
+
+  console.log(chalk.yellow.bold("  ⚠  Security Notice\n"));
+  console.log(chalk.yellow("  TaskSmith executes AI-generated code on your machine."));
+  console.log(chalk.yellow("  This is powerful — and carries real risks.\n"));
+  console.log(`  ${chalk.dim("•")} Never expose the REST API to the internet without auth`);
+  console.log(`  ${chalk.dim("•")} Restrict Discord bot to private channels with trusted users`);
+  console.log(`  ${chalk.dim("•")} Use Docker isolation for untrusted or high-risk tasks`);
+  console.log(`  ${chalk.dim("•")} validation_command runs as a shell command — treat it accordingly`);
+  console.log(`  ${chalk.dim("•")} Review task files from external sources before dropping in inbox\n`);
+  console.log(`  ${chalk.dim("See README.md Security section and ROADMAP.md for details.\n")}`);
 }

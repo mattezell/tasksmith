@@ -124,6 +124,11 @@ export class TaskEngine {
     let cwd: string | undefined = cwdOverride;
     if (!cwd && task.project) {
       const pd = join(this.workspace, "projects", task.project);
+      if (!existsSync(pd) && (task.template === "project-init" || task.template === "project_init")) {
+        // Green field: create the project directory so Claude Code has a clean workspace
+        mkdirSync(pd, { recursive: true });
+        console.log(`[engine] Created new project directory: ${pd}`);
+      }
       if (existsSync(pd)) cwd = pd;
     }
 

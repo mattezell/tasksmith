@@ -5,6 +5,28 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-02-18
+
+### Added
+- **`--param` CLI flag** — repeatable `--param key=value` option on `tasksmith submit` for passing task params (e.g., `--param validation_command="npm test" --param github_issue=42`). Auto-casts booleans and numbers.
+- **Interactive validation prompt** — when submitting interactively with `ralph-loop` or `bug-hunt` templates, CLI now asks for a validation command if one wasn't provided via `--param`
+- **JSON inbound parsing** — Coordinator now accepts JSON messages from inbound providers (Discord, REST, etc.) in addition to YAML
+- **Natural language param extraction** — chat messages now extract params automatically:
+  - Explicit `key="quoted value"` and `key=value` patterns
+  - Natural language: "validate with npm test" → `{ validation_command: "npm test" }`
+- **Green field project support** — Engine auto-creates the project directory for `project-init` template when it doesn't exist, so new projects can be scaffolded without manual setup
+- **Security warning on startup** — Coordinator displays a warning when external-facing inbound providers (`discord_bot`, `rest_api`) are active
+- **Security notice in onboarding** — setup wizard now shows security recommendations after completion
+- **README: Security section** — documents attack surface (prompt injection, shell execution via params, memory poisoning, no auth), current mitigations, and recommendations
+- **README: Passing Parameters** — comprehensive guide to passing params via every input path (CLI, YAML, JSON, REST API, Discord structured, Discord natural language)
+- **README: Green Field Projects** — documents `project-init` template usage across CLI, chat, and file drop
+
+### Changed
+- Submit confirmation output now displays parsed params
+- Discord bot documentation updated to show structured YAML/JSON input and natural language param extraction examples
+- REST API examples updated to include params
+- Version bumped to 0.7.2
+
 ## [0.7.1] - 2026-02-18
 
 ### Added
@@ -195,6 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration management with YAML and deep merge
 - Workspace scaffolding
 
+[0.7.2]: https://github.com/mattezell/tasksmith/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/mattezell/tasksmith/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mattezell/tasksmith/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mattezell/tasksmith/compare/v0.5.3...v0.6.0

@@ -200,6 +200,42 @@ Templates shape how Claude approaches a task. Each is a `PROMPT.md` with `{{prom
 | `doc-gen` | Generate or update documentation |
 | `heartbeat` | Scheduled: daily briefing, memory consolidation, health checks |
 
+### Green Field Projects
+
+The `project-init` template scaffolds new projects from scratch. TaskSmith auto-creates the project directory — no manual setup needed.
+
+**CLI:**
+
+```bash
+tasksmith submit -t project-init -p "Express API with JWT auth, Prisma ORM, and Docker" \
+  --project my-new-api \
+  --param language=TypeScript
+
+tasksmith submit -t project-init -p "CLI tool for converting CSV to JSON" \
+  --project csv2json \
+  --param language=Python
+```
+
+**Chat:**
+
+```
+@forge create a new TypeScript Express API with auth and tests in my-new-api
+  → template: project-init, project: my-new-api
+```
+
+**File drop:**
+
+```yaml
+template: project-init
+prompt: "FastAPI service with SQLAlchemy, alembic migrations, pytest, Docker"
+project: data-service
+params:
+  language: Python
+  validation_command: "pytest"
+```
+
+The template generates: idiomatic project structure, dependency management (package.json / pyproject.toml / etc.), test directory with example tests, CLAUDE.md, .gitignore, and README with setup instructions. Combine with `validation_command` to verify the scaffolded project builds and tests pass before completing.
+
 ### Template Resolution Chain
 
 Templates resolve in priority order (first match wins):
@@ -308,14 +344,29 @@ Scaffold your own: `tasksmith plugin create my-thing`
 | `rest_api` | HTTP server on port 8420 |
 | `watched_folder` | Watch any directory for task files |
 
-The Discord bot parses natural language:
+The Discord bot parses natural language, structured YAML, and JSON:
 
 ```
+# Natural language with auto-detection
 @forge fix the login timeout bug in my-api
   → template: bug-hunt, project: my-api
 
 @forge urgent review the payment module with opus
   → template: code-review, priority: urgent, model: opus
+
+# Natural language with params
+@forge fix the auth bug, validate with npm test in my-api
+  → template: bug-hunt, project: my-api
+  → params: { validation_command: "npm test" }
+
+# Paste YAML or JSON for full control
+@forge
+template: ralph-loop
+prompt: "Refactor the auth module"
+project: my-api
+params:
+  validation_command: "npm test"
+  github_issue: 42
 ```
 
 ---
@@ -352,6 +403,110 @@ tasksmith submit -f path/to/task.yaml
 tasksmith submit -t bug-hunt -p "Fix the race condition" --priority high --iterations 8
 ```
 
+### Passing Parameters
+
+Parameters like `validation_command`, `cf_deploy`, `github_issue`, etc. can be passed through every input path.
+
+**CLI — `--param` flag (repeatable):**
+
+```bash
+# Validation command for ralph-loop
+tasksmith submit -p "Add input validation to /users" --project my-api \
+  --param validation_command="npm test"
+
+# Multiple params
+tasksmith submit -t ralph-loop -p "Refactor auth module" --project my-api \
+  --param validation_command="npm run test:auth" \
+  --param github_issue=42 \
+  --param cooldown_seconds=10
+
+# Boolean and numeric values auto-cast
+tasksmith submit -p "Deploy the site" --param cf_deploy=true --param cooldown_seconds=5
+```
+
+In interactive mode (`tasksmith submit` with no prompt), TaskSmith asks for a validation command automatically when the template is `ralph-loop` or `bug-hunt`.
+
+**File drop — YAML:**
+
+```yaml
+template: ralph-loop
+prompt: "Add input validation to /users"
+project: my-api
+params:
+  validation_command: "npm test"
+  github_issue: 42
+  cooldown_seconds: 5
+```
+
+**File drop — JSON:**
+
+```json
+{
+  "template": "ralph-loop",
+  "prompt": "Add input validation to /users",
+  "project": "my-api",
+  "params": {
+    "validation_command": "npm test",
+    "github_issue": 42
+  }
+}
+```
+
+**REST API:**
+
+```bash
+curl -X POST http://localhost:8420/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template": "ralph-loop",
+    "prompt": "Add input validation to /users",
+    "project": "my-api",
+    "params": {
+      "validation_command": "npm test",
+      "github_issue": 42
+    }
+  }'
+```
+
+**Chat (Discord, or any inbound provider) — structured:**
+
+Paste YAML or JSON directly into the channel. The bot detects structured input automatically:
+
+```yaml
+template: ralph-loop
+prompt: "Fix the auth timeout"
+project: my-api
+params:
+  validation_command: "npm test"
+```
+
+or JSON:
+
+```json
+{"prompt": "Fix the auth timeout", "project": "my-api", "params": {"validation_command": "npm test"}}
+```
+
+**Chat — natural language:**
+
+The bot extracts params from natural language in three ways:
+
+```
+# Explicit key="value" (quoted)
+@forge fix the auth bug validation_command="npm test" in my-api
+
+# Explicit key=value (unquoted, single-word values)
+@forge deploy the site cf_deploy=true
+
+# Natural language validation
+@forge fix the login bug, validate with npm run test:auth in my-api
+  → params: { validation_command: "npm run test:auth" }
+
+# All NL features combine with template/project/priority detection
+@forge urgent fix the race condition, test with pytest in payment-service
+  → template: bug-hunt, priority: urgent, project: payment-service
+  → params: { validation_command: "pytest" }
+```
+
 ---
 
 ## REST API
@@ -359,10 +514,10 @@ tasksmith submit -t bug-hunt -p "Fix the race condition" --priority high --itera
 Enable the `rest_api` inbound provider for HTTP access on port 8420.
 
 ```bash
-# Submit a task
+# Submit a task (with params)
 curl -X POST http://localhost:8420/tasks \
   -H "Content-Type: application/json" \
-  -d '{"template": "ralph-loop", "prompt": "Add tests", "project": "my-api"}'
+  -d '{"template": "ralph-loop", "prompt": "Add tests", "project": "my-api", "params": {"validation_command": "npm test"}}'
 
 # List tasks
 curl http://localhost:8420/tasks?status=completed
@@ -521,6 +676,44 @@ src/
 - **Plugin = function** — a plugin is a single function receiving a context object. No class hierarchies, no annotations.
 - **npm IS the plugin manager** — no custom registry. `npm install` + one line in config.
 - **Lazy loading** — bundled plugins import on-demand. Disabled plugins add zero startup cost.
+
+---
+
+## Security
+
+TaskSmith executes AI-generated code on your machine. This is the entire point — and it carries real risks. Understand them before deploying.
+
+### Attack Surface
+
+**Prompt injection.** Inbound messages (Discord, REST API, watched folders) become prompts that drive code execution. A crafted message could manipulate Claude's behavior, override template intent, or inject unexpected instructions.
+
+**Shell execution via params.** `validation_command` is executed as a shell command (`sh -c`). Any input path that can set task params (CLI, REST API, Discord, file drop) can control what runs on your machine.
+
+**Memory poisoning.** Task results are written to memory and loaded into future prompts. A single adversarial task result could influence all subsequent task behavior.
+
+**Git operations.** Worktree PR titles and commit messages include task content. Crafted prompts could inject unexpected content into your git history.
+
+**No authentication.** The REST API (port 8420) has no auth by default. The Discord bot accepts commands from anyone in the configured channel.
+
+### Mitigations (Current)
+
+- Claude Code has its own safety layer and permission model
+- `--allowedTools` limits what Claude Code can invoke
+- REST API binds to localhost by default
+- Discord bot supports channel ID filtering
+- Docker plugin provides optional container isolation
+- File drop requires local filesystem access
+
+### Recommendations
+
+- **Never expose the REST API to the internet** without adding authentication
+- **Restrict Discord bot** to a private channel with trusted users only
+- **Use Docker isolation** for untrusted or high-risk tasks
+- **Review task files** before dropping them in inbox if they come from external sources
+- **Set `--allowedTools` conservatively** in your Claude Code provider config
+- **Use the `pr` worktree strategy** (default) so changes are reviewed before merging
+
+See [ROADMAP.md](ROADMAP.md) for planned security improvements including input sanitization, param allowlists, API authentication, and human-in-the-loop approval gates.
 
 ---
 

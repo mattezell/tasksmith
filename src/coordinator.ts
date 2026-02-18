@@ -112,7 +112,22 @@ export class Coordinator {
   private async handleInbound(msg: InboundMessage): Promise<void> {
     const content = msg.content.trim();
 
-    // Try YAML parse first
+    // Try JSON parse first (Discord/chat users may paste JSON)
+    if (content.startsWith("{")) {
+      try {
+        const data = JSON.parse(content);
+        if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
+          const taskYaml = yaml.dump(data);
+          const task = this.engine.parseTask(taskYaml, msg.source);
+          const taskFile = join(this.workspace, "tasks", "inbox", `${task.id}.yaml`);
+          writeFileSync(taskFile, yaml.dump(task));
+          console.log(`[coordinator] Queued JSON task ${task.id} from ${msg.source}`);
+          return;
+        }
+      } catch { /* Not valid JSON, continue */ }
+    }
+
+    // Try YAML parse
     try {
       const data = yaml.load(content) as Record<string, any>;
       if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
@@ -158,11 +173,34 @@ export class Coordinator {
     if (/urgent|asap|critical|emergency/.test(tl)) priority = "urgent";
     else if (/important|high priority/.test(tl)) priority = "high";
 
+    // Extract params from inline key=value patterns
+    // e.g. "fix the auth bug validation_command=\"npm test\"" or "validate with: npm test"
+    const params: Record<string, unknown> = {};
+
+    // Match explicit key="value" patterns (quoted values)
+    const kvMatches = text.matchAll(/(\w+)\s*=\s*"([^"]+)"/g);
+    for (const m of kvMatches) params[m[1]] = m[2];
+
+    // Match unquoted key=value (single word values)
+    const kvSimple = text.matchAll(/(\w+)\s*=\s*(\S+)/g);
+    for (const m of kvSimple) {
+      if (!(m[1] in params)) params[m[1]] = m[2];
+    }
+
+    // Natural language validation detection
+    // "validate with npm test" / "test with: npm run test" / "run tests: pytest"
+    if (!params.validation_command) {
+      const valMatch = text.match(/(?:validate|test|check)\s+(?:with|using|via|command)[:\s]+(.+?)(?:\s+(?:in|on|for)\s|$)/i);
+      if (valMatch) {
+        params.validation_command = valMatch[1].trim();
+      }
+    }
+
     const now = new Date().toISOString();
     const id = `task-${now.slice(0, 19).replace(/[T:]/g, "").replace(/-/g, "")}-${uuidv4().slice(0, 6)}`;
 
     return {
-      id, template, prompt: text, project, params: {}, model, priority,
+      id, template, prompt: text, project, params, model, priority,
       maxIterations: 5, notify: ["all"], status: "pending",
       createdAt: now, startedAt: "", completedAt: "",
       result: "", error: "", iterations: 0,
@@ -217,6 +255,13 @@ export class Coordinator {
     ${line("  Press Ctrl+C to stop")}
     ${chalk.blue("╚" + "═".repeat(W) + "╝")}
 `);
+
+    // Security reminder if external-facing providers are active
+    const hasExternalInbound = this.inbound.some(p => ["discord_bot", "rest_api"].includes(p.name));
+    if (hasExternalInbound) {
+      console.log(chalk.yellow("  ⚠  External inbound providers active. Ensure access is restricted."));
+      console.log(chalk.dim("     See: README.md Security section\n"));
+    }
 
     // Initialize worker pool
     const engineConfig = (this.config as any).engine || {};
