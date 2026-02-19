@@ -112,10 +112,29 @@ export class TaskEngine {
   private invokeCC(prompt: string, task: Task, cwdOverride?: string): { ok: boolean; output?: string; error?: string } {
     const ccProviders = this.config.models?.providers || [];
     const ccCfg = ccProviders.find((p: any) => p.provider === "claude_code")?.config || {};
-    const tools: string[] = ccCfg.defaultAllowedTools || ["Write", "Read", "Edit", "Bash", "Task"];
+    const engineCfg = this.config.engine || {};
 
     const args = ["-p", prompt, "--model", task.model, "--output-format", "json"];
-    for (const t of tools) args.push("--allowedTools", t);
+
+    // Resolve permission mode: task-level override > engine config > default
+    const mode = (task.params.permission_mode as string) || engineCfg.permissionMode || "supervised";
+
+    if (mode === "yolo") {
+      args.push("--dangerously-skip-permissions");
+      // --disallowedTools still works in bypass mode
+      const denyList = this.buildDenyList(engineCfg, task);
+      for (const t of denyList) args.push("--disallowedTools", t);
+    } else if (mode === "autonomous") {
+      args.push("--permission-mode", "acceptEdits");
+      const allowList = this.buildAllowList(engineCfg, task);
+      for (const t of allowList) args.push("--allowedTools", t);
+      const denyList = this.buildDenyList(engineCfg, task);
+      for (const t of denyList) args.push("--disallowedTools", t);
+    } else {
+      // supervised: legacy behavior — use defaultAllowedTools from claude_code provider config
+      const tools: string[] = ccCfg.defaultAllowedTools || ["Write", "Read", "Edit", "Bash", "Task"];
+      for (const t of tools) args.push("--allowedTools", t);
+    }
 
     const dd = join(this.workspace, "directives");
     if (existsSync(dd)) args.push("--add-dir", dd);
@@ -134,7 +153,7 @@ export class TaskEngine {
 
     const timeout = (this.defaults.timeoutMinutes || 30) * 60 * 1000;
 
-    console.log(`[engine] CC invoke: model=${task.model} project=${task.project || "none"}`);
+    console.log(`[engine] CC invoke: mode=${mode} model=${task.model} project=${task.project || "none"}`);
 
     try {
       const result = spawnSync("claude", args, {
@@ -153,6 +172,31 @@ export class TaskEngine {
       if (e.killed) return { ok: false, error: "Task timed out" };
       return { ok: false, error: e.message };
     }
+  }
+
+  // ── Permission List Builders ───────────────────────────────────────
+
+  private buildAllowList(engineCfg: Record<string, any>, task: Task): string[] {
+    const base: string[] = engineCfg.permissions?.allow || [];
+    const taskAllow: string[] = (task.params.allowed_tools as string[]) || [];
+
+    // Auto-allow the validation command if one is set
+    const valCmd = task.params.validation_command as string | undefined;
+    const valAllow: string[] = [];
+    if (valCmd) {
+      // Extract the base command (first word) and allow it with wildcard
+      const baseCmd = valCmd.trim().split(/\s+/)[0];
+      valAllow.push(`Bash(${baseCmd} *)`);
+    }
+
+    // Deduplicate
+    return [...new Set([...base, ...taskAllow, ...valAllow])];
+  }
+
+  private buildDenyList(engineCfg: Record<string, any>, task: Task): string[] {
+    const base: string[] = engineCfg.permissions?.deny || [];
+    const taskDeny: string[] = (task.params.disallowed_tools as string[]) || [];
+    return [...new Set([...base, ...taskDeny])];
   }
 
   // ── Validation ─────────────────────────────────────────────────────

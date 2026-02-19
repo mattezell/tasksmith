@@ -43,6 +43,37 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
     templatesDir: "",       // additional template search path
     globalConfigDir: "",    // if empty, defaults to ~/.tasksmith
   },
+  engine: {
+    concurrency: 1,
+    permissionMode: "supervised",
+    permissions: {
+      allow: [
+        "Read", "Edit", "Write",
+        "Bash(npm *)", "Bash(npx *)", "Bash(node *)",
+        "Bash(git add *)", "Bash(git commit *)", "Bash(git status *)",
+        "Bash(git diff *)", "Bash(git branch *)", "Bash(git checkout *)",
+        "Bash(git log *)",
+        "Bash(ls *)", "Bash(cat *)", "Bash(mkdir *)", "Bash(cp *)",
+        "Bash(grep *)", "Bash(find *)", "Bash(echo *)", "Bash(head *)", "Bash(tail *)",
+        "Bash(python *)", "Bash(python3 *)", "Bash(pip *)",
+        "Bash(cargo *)", "Bash(go *)", "Bash(make *)",
+        "Bash(tsc *)",
+      ],
+      deny: [
+        "Bash(rm -rf *)",
+        "Bash(sudo *)",
+        "Bash(curl *)",
+        "Bash(wget *)",
+        "Read(.env*)",
+        "Read(secrets/**)",
+      ],
+    },
+    worktree: {
+      enabled: false,
+      strategy: "pr",
+      baseBranch: "main",
+    },
+  },
   communication: {
     outbound: [
       { provider: "discord_webhook", enabled: false, config: { webhookUrl: "", username: "TaskSmith" } },

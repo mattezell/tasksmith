@@ -40,10 +40,23 @@ program
 program
   .command("run")
   .description("Start the TaskSmith engine")
-  .action(async () => {
+  .option("--mode <mode>", "Permission mode: supervised, autonomous, or yolo")
+  .action(async (opts) => {
     const { Coordinator } = await import("./coordinator.js");
     const ws = resolveWorkspace(program.opts().dir);
     const config = loadConfig(ws);
+
+    // CLI --mode overrides config
+    if (opts.mode) {
+      const valid = ["supervised", "autonomous", "yolo"];
+      if (!valid.includes(opts.mode)) {
+        console.error(chalk.red(`Invalid mode: ${opts.mode}. Must be one of: ${valid.join(", ")}`));
+        process.exit(1);
+      }
+      if (!config.engine) (config as any).engine = {};
+      (config as any).engine.permissionMode = opts.mode;
+    }
+
     const coordinator = new Coordinator(ws, config);
     await coordinator.run();
   });
@@ -168,6 +181,10 @@ program
     console.log(`    Mode         ${chalk.cyan(info.mode)}`);
     console.log(`    Path         ${info.path}`);
     console.log(`    Projects     ${info.projectsDir}`);
+
+    const permMode = (config as any).engine?.permissionMode || "supervised";
+    const modeColors: Record<string, (s: string) => string> = { supervised: chalk.green, autonomous: chalk.yellow, yolo: chalk.red };
+    console.log(`    Permissions  ${(modeColors[permMode] || chalk.white)(permMode)}`);
 
     console.log(chalk.bold("\n  Task Queue"));
     for (const [label, dir] of [["Pending", "inbox"], ["Active", "active"], ["Completed", "completed"], ["Failed", "failed"]] as const) {
@@ -425,6 +442,10 @@ program
     console.log(`    Workspace:     ${info.path}`);
     console.log(`    Projects dir:  ${info.projectsDir}`);
     console.log(`    Global config: ${join(homedir(), ".tasksmith")}`);
+
+    const permMode = (config as any).engine?.permissionMode || "supervised";
+    const modeColors: Record<string, (s: string) => string> = { supervised: chalk.green, autonomous: chalk.yellow, yolo: chalk.red };
+    console.log(`    Permissions:   ${(modeColors[permMode] || chalk.white)(permMode)}`);
 
     if (config.workspace?.templatesDir) {
       console.log(`    Extra templates: ${config.workspace.templatesDir}`);

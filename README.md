@@ -376,6 +376,8 @@ params:
 ```bash
 tasksmith setup              # Interactive onboarding wizard
 tasksmith run                # Start the engine (with worker pool)
+tasksmith run --mode yolo    # Start with YOLO permissions (--dangerously-skip-permissions)
+tasksmith run --mode autonomous  # Start with autonomous permissions (acceptEdits + scoped tools)
 tasksmith submit             # Submit a task (interactive or with flags)
 tasksmith status             # Queue counts, infrastructure health, directives
 tasksmith init               # Initialize project-local config (.tasksmith/)
@@ -543,6 +545,11 @@ notify:
 params:
   validation_command: "npm test"
   cooldown_seconds: 5       # Pause between retries
+  permission_mode: autonomous  # Override engine permission mode for this task
+  allowed_tools:             # Additional --allowedTools for this task (autonomous mode)
+    - "Bash(python *)"
+  disallowed_tools:          # Additional --disallowedTools for this task
+    - "Bash(pip install *)"
   github_issue: 42          # Link to GitHub issue (github plugin)
   jira_ticket: "PROJ-123"   # Link to JIRA ticket (jira plugin)
   docker_image: "node:22"   # Override container image (docker plugin)
@@ -567,7 +574,28 @@ taskDefaults:
   priority: normal
 
 engine:
-  concurrency: 3           # parallel task slots
+  permissionMode: supervised  # supervised | autonomous | yolo
+  concurrency: 3              # parallel task slots
+  permissions:                 # used in autonomous mode
+    allow:
+      - "Read"
+      - "Edit"
+      - "Write"
+      - "Bash(npm *)"
+      - "Bash(git *)"
+      - "Bash(node *)"
+      - "Bash(ls *)"
+      - "Bash(cat *)"
+      - "Bash(mkdir *)"
+      - "Bash(python *)"
+      - "Bash(tsc *)"
+    deny:
+      - "Bash(rm -rf *)"
+      - "Bash(sudo *)"
+      - "Bash(curl *)"
+      - "Bash(wget *)"
+      - "Read(.env*)"
+      - "Read(secrets/**)"
   worktree:
     enabled: true           # git worktree isolation
     strategy: "pr"          # "pr" | "auto-merge" | "branch-only"
@@ -608,6 +636,104 @@ Config layering: defaults → global `~/.tasksmith` → project-local `.tasksmit
 
 ---
 
+## Permission Modes
+
+TaskSmith controls how Claude Code handles permissions during task execution. Since tasks run headlessly via `claude -p`, there's nobody at the keyboard to approve permission prompts — so the permission mode determines how autonomous your tasks can be.
+
+### supervised (default)
+
+```bash
+tasksmith run                    # uses engine.permissionMode from config
+tasksmith run --mode supervised  # explicit
+```
+
+Legacy behavior. Passes `--allowedTools` from the `models.providers.claude_code.config.defaultAllowedTools` setting (defaults to Write, Read, Edit, Bash, Task). Claude Code runs in its default permission mode — tasks will **stall on permission prompts** unless the user has their own Claude Code permissions configured (e.g., in `~/.claude/settings.json`).
+
+Best for: learning the system, environments where you've already configured Claude Code permissions globally.
+
+### autonomous
+
+```bash
+tasksmith run --mode autonomous
+```
+
+The recommended mode for unattended operation. Passes `--permission-mode acceptEdits` to Claude Code along with scoped tool permissions:
+
+- `--allowedTools` from `engine.permissions.allow` — file operations are auto-approved; bash commands scoped to explicitly allowed patterns
+- `--disallowedTools` from `engine.permissions.deny` — destructive commands blocked
+- If a task has a `validation_command`, the base command is **automatically added** to the allow list
+
+TaskSmith ships with sensible defaults covering common dev tools (npm, git, python, cargo, go, make, tsc, basic file ops) while denying destructive commands (rm -rf, sudo, curl, wget) and sensitive file reads (.env, secrets/).
+
+Customize per workspace:
+
+```yaml
+engine:
+  permissionMode: autonomous
+  permissions:
+    allow:
+      - "Bash(npm *)"
+      - "Bash(cargo *)"
+      - "Bash(docker build *)"
+    deny:
+      - "Bash(rm -rf *)"
+      - "Bash(sudo *)"
+```
+
+Or per task:
+
+```yaml
+template: ralph-loop
+prompt: "Run the ML training pipeline"
+params:
+  permission_mode: autonomous
+  allowed_tools:
+    - "Bash(python *)"
+    - "Bash(pip install *)"
+  disallowed_tools:
+    - "Bash(rm -rf *)"
+  validation_command: "python -m pytest"
+```
+
+Best for: solo developer workflows, trusted project codebases, unattended overnight runs.
+
+### yolo
+
+```bash
+tasksmith run --mode yolo
+```
+
+Passes `--dangerously-skip-permissions` to Claude Code. All permission checks are bypassed — Claude executes any operation without prompting. The `engine.permissions.deny` list is still applied via `--disallowedTools` (which works even in bypass mode).
+
+Displays a prominent red warning on startup:
+
+```
+⚠  YOLO MODE — ALL permission checks disabled.
+   Claude Code will execute any operation without prompting.
+   Use only in isolated environments (Docker, VM, worktree).
+```
+
+Best for: Docker containers, VMs, CI/CD pipelines, or when combined with git worktree isolation where changes land on a branch (not main).
+
+### Mode Resolution Order
+
+Permission mode is resolved per-task with this precedence:
+
+1. **Task-level:** `params.permission_mode` in the task file
+2. **CLI flag:** `tasksmith run --mode <mode>` for the current session
+3. **Config:** `engine.permissionMode` in tasksmith.yaml
+4. **Default:** `supervised`
+
+This means you can run the engine in `supervised` mode but submit individual tasks that escalate to `autonomous` or `yolo` when needed.
+
+### Important Notes
+
+- **No settings files are written.** TaskSmith passes CLI flags to Claude Code (`--permission-mode`, `--allowedTools`, `--disallowedTools`, `--dangerously-skip-permissions`). Your `~/.claude/settings.json` and project `.claude/` directories are never touched.
+- **Known issue:** `--allowedTools` may be ignored when combined with `--dangerously-skip-permissions` (Claude Code bug). This is why `yolo` mode uses `--disallowedTools` instead — which works correctly in all modes.
+- **Validation commands are auto-allowed.** In `autonomous` mode, if a task has `params.validation_command: "npm test"`, TaskSmith automatically adds `Bash(npm *)` to the allow list so the Ralph Loop can run without stalling.
+
+---
+
 ## Architecture
 
 ```
@@ -640,15 +766,15 @@ Config layering: defaults → global `~/.tasksmith` → project-local `.tasksmit
 
 ```
 src/
-├── config.ts             382 lines   Workspace resolution, config layering, template chain
-├── engine.ts             405 lines   Task lifecycle, Ralph Loop, Claude Code invocation
+├── config.ts             427 lines   Workspace resolution, config layering, template chain
+├── engine.ts             454 lines   Task lifecycle, Ralph Loop, CC invocation, permission modes
 ├── plugins.ts            583 lines   Plugin loader, lifecycle hooks, scaffolding
-├── cli.ts                512 lines   Commander CLI (18 commands)
+├── cli.ts                572 lines   Commander CLI (18 commands)
 ├── pool.ts               484 lines   Worker pool, concurrency, git worktree isolation
-├── onboarding.ts         324 lines   8-step interactive setup wizard
-├── coordinator.ts        289 lines   Wires providers + engine + pool + plugins
+├── onboarding.ts         443 lines   9-step interactive setup wizard
+├── coordinator.ts        367 lines   Wires providers + engine + pool + plugins
 ├── scheduler.ts          237 lines   Cron-based task scheduling
-├── types.ts              177 lines   Interfaces and provider contracts
+├── types.ts              199 lines   Interfaces, provider contracts, permission types
 ├── api.ts                174 lines   REST API server
 ├── index.ts                7 lines   Package exports
 ├── providers/
@@ -666,7 +792,7 @@ src/
     └── semantic-memory   451 lines   Vector-based semantic search
 ```
 
-**Under 5,000 lines of core TypeScript** + 2,582 lines across 8 bundled plugins. Every module fits in your head.
+**Under 5,000 lines of core TypeScript** + 2,573 lines across 8 bundled plugins. Every module fits in your head.
 
 ### Design Principles
 
@@ -698,20 +824,26 @@ TaskSmith executes AI-generated code on your machine. This is the entire point �
 ### Mitigations (Current)
 
 - Claude Code has its own safety layer and permission model
-- `--allowedTools` limits what Claude Code can invoke
+- **Permission modes** control how much autonomy Claude Code gets — `supervised` (default) is most restrictive, `autonomous` provides scoped access, `yolo` is unrestricted
+- `engine.permissions.deny` blocks destructive commands even in `yolo` mode (via `--disallowedTools`)
+- Default deny list blocks `rm -rf`, `sudo`, `curl`, `wget`, and `.env`/`secrets/` file reads
 - REST API binds to localhost by default
 - Discord bot supports channel ID filtering
 - Docker plugin provides optional container isolation
 - File drop requires local filesystem access
+- Git worktree isolation (default `pr` strategy) ensures changes are reviewed before merging
 
 ### Recommendations
 
+- **Start with `supervised` mode** until you're comfortable with how tasks execute
+- **Use `autonomous` mode** with a restrictive `engine.permissions.allow` list for unattended operation
+- **Only use `yolo` mode** in isolated environments (Docker, VM, disposable worktrees)
 - **Never expose the REST API to the internet** without adding authentication
 - **Restrict Discord bot** to a private channel with trusted users only
 - **Use Docker isolation** for untrusted or high-risk tasks
 - **Review task files** before dropping them in inbox if they come from external sources
-- **Set `--allowedTools` conservatively** in your Claude Code provider config
 - **Use the `pr` worktree strategy** (default) so changes are reviewed before merging
+- **Customize deny lists** per-project to block project-specific sensitive operations
 
 See [ROADMAP.md](ROADMAP.md) for planned security improvements including input sanitization, param allowlists, API authentication, and human-in-the-loop approval gates.
 
@@ -724,11 +856,11 @@ git clone https://github.com/mattezell/tasksmith.git
 cd tasksmith
 npm install
 npm run build
-npm link           # makes `tasksmith` and `forge` available globally
+npm link           # makes `tasksmith` available globally
 ```
 
 ```bash
-tasksmith --version    # 0.5.0
+tasksmith --version    # 0.8.0
 tasksmith doctor       # check prerequisites
 ```
 

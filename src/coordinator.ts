@@ -236,8 +236,17 @@ export class Coordinator {
     const outNames = this.outbound.map(p => p.name).join(", ") || "none";
     const inNames = this.inbound.map(p => p.name).join(", ") || "file_drop only";
     const memNames = this.memory.map(p => p.name).join(", ");
+
+    const engineConfig = (this.config as any).engine || {};
+    const permMode = engineConfig.permissionMode || "supervised";
+    const modeLabels: Record<string, string> = {
+      supervised: "🟢 supervised",
+      autonomous: "🟡 autonomous (acceptEdits + scoped tools)",
+      yolo: "🔴 YOLO (--dangerously-skip-permissions)",
+    };
+    const modeLabel = modeLabels[permMode] || permMode;
         
-    const W = 54; // inner width between the ║ bars
+    const W = 58; // inner width between the ║ bars
     const line = (content: string) =>
       `${chalk.blue("║")}${content.padEnd(W)}${chalk.blue("║")}`;
     const title = `TaskSmith v${pkg.version}`;
@@ -247,6 +256,7 @@ export class Coordinator {
     ${line(title.padStart((W + title.length) / 2).padEnd(W))}
     ${chalk.blue("╠" + "═".repeat(W) + "╣")}
     ${line(`  Workspace:  ${this.workspace}`)}
+    ${line(`  Mode:       ${modeLabel}`)}
     ${line(`  Inbox:      ${this.engine.inbox}`)}
     ${line(`  Outbound:   ${outNames}`)}
     ${line(`  Inbound:    ${inNames}`)}
@@ -256,6 +266,13 @@ export class Coordinator {
     ${chalk.blue("╚" + "═".repeat(W) + "╝")}
 `);
 
+    // YOLO mode warning
+    if (permMode === "yolo") {
+      console.log(chalk.red.bold("  ⚠  YOLO MODE — ALL permission checks disabled."));
+      console.log(chalk.red("     Claude Code will execute any operation without prompting."));
+      console.log(chalk.red("     Use only in isolated environments (Docker, VM, worktree).\n"));
+    }
+
     // Security reminder if external-facing providers are active
     const hasExternalInbound = this.inbound.some(p => ["discord_bot", "rest_api"].includes(p.name));
     if (hasExternalInbound) {
@@ -264,7 +281,6 @@ export class Coordinator {
     }
 
     // Initialize worker pool
-    const engineConfig = (this.config as any).engine || {};
     const concurrency = engineConfig.concurrency || 1;
     const poolLog = {
       info: (m: string) => console.log(`[pool] ${m}`),

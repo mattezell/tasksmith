@@ -5,6 +5,38 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-18
+
+### Added
+- **Permission modes** — three-tier autonomy control for Claude Code invocation:
+  - `supervised` (default) — legacy behavior, uses `--allowedTools` from provider config. Tasks may stall on permission prompts in headless mode.
+  - `autonomous` — passes `--permission-mode acceptEdits` with scoped `--allowedTools` and `--disallowedTools`. Full file read/write without prompts; bash scoped to explicitly allowed commands.
+  - `yolo` — passes `--dangerously-skip-permissions`. Full autonomy with no guardrails. Prominent startup warning displayed.
+- **`engine` config block** — new top-level config section:
+  - `engine.permissionMode` — set default permission mode (`supervised`, `autonomous`, `yolo`)
+  - `engine.permissions.allow` — list of `--allowedTools` rules for `autonomous` mode (e.g., `Bash(npm *)`, `Edit`, `Read`)
+  - `engine.permissions.deny` — list of `--disallowedTools` rules applied in both `autonomous` and `yolo` modes (e.g., `Bash(rm -rf *)`, `Bash(sudo *)`)
+  - `engine.concurrency` and `engine.worktree` moved here from ad-hoc config (backward compatible)
+- **`tasksmith run --mode <mode>`** — CLI flag to override the configured permission mode for a session
+- **Task-level permission overrides** — tasks can set `params.permission_mode`, `params.allowed_tools`, and `params.disallowed_tools` to override engine defaults per-task
+- **Auto-allow validation commands** — in `autonomous` mode, if a task has a `validation_command`, the base command is automatically added to the allow list
+- **Permission mode in startup banner** — shows 🟢 supervised, 🟡 autonomous, or 🔴 YOLO with mode description
+- **YOLO mode startup warning** — red warning banner when running in yolo mode, recommends isolated environments
+- **`PermissionMode` type** — exported from types.ts for plugin authors
+- **`EngineConfig` and `PermissionsConfig` interfaces** — typed engine configuration
+- **Sensible default allow/deny lists** — ships with curated defaults for `autonomous` mode covering common dev tools (npm, git, python, cargo, go, make, tsc, file operations) while denying destructive commands (rm -rf, sudo, curl, wget) and sensitive file reads (.env, secrets/)
+- **Onboarding wizard: Engine & Permissions step** — new step 8 (of 9) in `tasksmith setup` lets users choose permission mode (supervised/autonomous/yolo) and configure concurrency interactively
+- **Permission mode in `tasksmith status` and `tasksmith info`** — both commands now display the configured permission mode with color-coded output (🟢 green/🟡 yellow/🔴 red)
+- **README: Permission Modes section** — comprehensive documentation of all three modes with config examples, task-level overrides, mode resolution order, and important notes about CLI flag behavior
+
+### Changed
+- **Engine `invokeCC()`** — rewritten to build Claude Code CLI args based on active permission mode instead of always using `--allowedTools`
+- **Coordinator banner** — wider (58 chars) to accommodate mode display; shows permission mode between workspace and inbox lines
+- **Engine config** — `concurrency` and `worktree` settings now live under the `engine` block in config (previous locations still work via deep-merge)
+- **Onboarding wizard** — now 9 steps (was 8); security notice updated to reference permission modes
+- **Security section** — updated with permission mode guidance in mitigations and recommendations
+- Version bumped to 0.8.0
+
 ## [0.7.2] - 2026-02-18
 
 ### Added

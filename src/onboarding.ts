@@ -78,7 +78,7 @@ function parseUserDefaults(ws: string): Record<string, string> {
 // =============================================================================
 
 async function stepPrereqs(): Promise<boolean> {
-  step(1, 8, "Prerequisites Check");
+  step(1, 9, "Prerequisites Check");
   const checks: [string, string][] = [["Claude Code CLI", "claude --version"], ["Node.js 18+", "node --version"], ["git", "git --version"]];
   const optional: [string, string][] = [["Ollama", "ollama --version"], ["Docker", "docker --version"]];
 
@@ -105,13 +105,13 @@ async function stepPrereqs(): Promise<boolean> {
 }
 
 async function stepInit(ws: string) {
-  step(2, 8, "Initialize Workspace");
+  step(2, 9, "Initialize Workspace");
   scaffoldWorkspace(ws);
   console.log(`    ${chalk.green("✓")} Workspace at ${ws}`);
 }
 
 async function stepSoul(ws: string) {
-  step(3, 8, "SOUL.md — How Claude Works For You");
+  step(3, 9, "SOUL.md — How Claude Works For You");
 
   const prev = parseSoulDefaults(ws);
   const answers = await inquirer.prompt([
@@ -152,7 +152,7 @@ ${answers.anti.split(",").map((p: string) => `- ${p.trim()}`).join("\n")}
 }
 
 async function stepUser(ws: string) {
-  step(4, 8, "USER.md — About You");
+  step(4, 9, "USER.md — About You");
 
   const prev = parseUserDefaults(ws);
   const answers = await inquirer.prompt([
@@ -182,7 +182,7 @@ async function stepUser(ws: string) {
 }
 
 async function stepComms(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(5, 8, "Communication");
+  step(5, 9, "Communication");
 
   const isEnabled = (p: string) => config.communication.outbound.find(e => e.provider === p)?.enabled ?? false;
   const { outbound } = await inquirer.prompt([{
@@ -252,7 +252,7 @@ async function stepComms(ws: string, config: TaskSmithConfig): Promise<TaskSmith
 }
 
 async function stepModels(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(6, 8, "Model Routing");
+  step(6, 9, "Model Routing");
 
   let ollamaModels: string[] = [];
   try {
@@ -289,7 +289,7 @@ async function stepModels(ws: string, config: TaskSmithConfig): Promise<TaskSmit
 }
 
 async function stepMemory(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(7, 8, "Memory System");
+  step(7, 9, "Memory System");
   console.log("    Baseline (always on): markdown hot + JSONL warm");
 
   // Init files
@@ -306,8 +306,50 @@ async function stepMemory(ws: string, config: TaskSmithConfig): Promise<TaskSmit
   return config;
 }
 
+async function stepEngine(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
+  step(8, 9, "Engine & Permissions");
+  console.log("    Controls how autonomous Claude Code is during task execution.\n");
+
+  if (!config.engine) (config as any).engine = {};
+
+  const currentMode = config.engine?.permissionMode || "supervised";
+
+  const { mode } = await inquirer.prompt([
+    {
+      name: "mode",
+      message: "Permission mode:",
+      type: "list",
+      default: currentMode,
+      choices: [
+        { name: "supervised  — tasks may stall on permission prompts (safest)", value: "supervised" },
+        { name: "autonomous  — file ops auto-approved, bash scoped to allow list (recommended)", value: "autonomous" },
+        { name: "yolo        — all permissions bypassed (use in isolated environments only)", value: "yolo" },
+      ],
+    },
+  ]);
+  (config as any).engine.permissionMode = mode;
+
+  if (mode === "autonomous") {
+    console.log(`\n    ${chalk.dim("Default allow list: Read, Edit, Write, npm, git, node, python, etc.")}`);
+    console.log(`    ${chalk.dim("Default deny list:  rm -rf, sudo, curl, wget, .env, secrets/")}`);
+    console.log(`    ${chalk.dim("Customize in tasksmith.yaml → engine.permissions.allow / .deny")}`);
+  } else if (mode === "yolo") {
+    console.log(chalk.red(`\n    ⚠  YOLO mode bypasses ALL Claude Code permission checks.`));
+    console.log(chalk.red(`       Only use in Docker containers, VMs, or disposable environments.`));
+  }
+
+  const currentConcurrency = config.engine?.concurrency || 1;
+  const { concurrency } = await inquirer.prompt([
+    { name: "concurrency", message: "Parallel task slots:", type: "number", default: currentConcurrency },
+  ]);
+  (config as any).engine.concurrency = concurrency || 1;
+
+  console.log(`    ${chalk.green("✓")} Engine: ${mode}, concurrency=${concurrency || 1}`);
+  return config;
+}
+
 async function stepSmokeTest(ws: string, config: TaskSmithConfig) {
-  step(8, 8, "Smoke Test");
+  step(9, 9, "Smoke Test");
 
   const enabled = config.communication.outbound.filter(e => e.enabled);
   if (enabled.length) {
@@ -350,6 +392,7 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
     comms: () => stepComms(ws, config),
     models: () => stepModels(ws, config),
     memory: () => stepMemory(ws, config),
+    engine: () => stepEngine(ws, config),
     test: () => stepSmokeTest(ws, config),
   };
 
@@ -368,6 +411,7 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
     config = await stepComms(ws, config);
     config = await stepModels(ws, config);
     config = await stepMemory(ws, config);
+    config = await stepEngine(ws, config);
     await stepSmokeTest(ws, config);
   }
 
@@ -381,16 +425,19 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
     Check status:   ${chalk.bold("tasksmith status")}
 
     Re-run a step:  ${chalk.bold("tasksmith setup --step NAME")}
-    Steps: prereqs, dirs, soul, user, comms, models, memory, test
+    Steps: prereqs, dirs, soul, user, comms, models, memory, engine, test
 `);
 
   console.log(chalk.yellow.bold("  ⚠  Security Notice\n"));
   console.log(chalk.yellow("  TaskSmith executes AI-generated code on your machine."));
   console.log(chalk.yellow("  This is powerful — and carries real risks.\n"));
+  console.log(`  ${chalk.dim("•")} Start with supervised mode until you're comfortable`);
+  console.log(`  ${chalk.dim("•")} Use autonomous mode with a restrictive allow list for unattended runs`);
+  console.log(`  ${chalk.dim("•")} Only use yolo mode in isolated environments (Docker, VM)`);
   console.log(`  ${chalk.dim("•")} Never expose the REST API to the internet without auth`);
   console.log(`  ${chalk.dim("•")} Restrict Discord bot to private channels with trusted users`);
   console.log(`  ${chalk.dim("•")} Use Docker isolation for untrusted or high-risk tasks`);
   console.log(`  ${chalk.dim("•")} validation_command runs as a shell command — treat it accordingly`);
   console.log(`  ${chalk.dim("•")} Review task files from external sources before dropping in inbox\n`);
-  console.log(`  ${chalk.dim("See README.md Security section and ROADMAP.md for details.\n")}`);
+  console.log(`  ${chalk.dim("See README.md Security and Permission Modes sections for details.\n")}`);
 }

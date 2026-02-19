@@ -133,6 +133,27 @@ export interface FileSyncProvider {
 // CONFIG TYPES
 // =============================================================================
 
+export type PermissionMode = "supervised" | "autonomous" | "yolo";
+
+export interface PermissionsConfig {
+  allow: string[];   // --allowedTools rules (e.g. "Bash(npm *)", "Edit")
+  deny: string[];    // --disallowedTools rules (e.g. "Bash(rm -rf *)", "Bash(sudo *)")
+}
+
+export interface EngineConfig {
+  concurrency: number;
+  permissionMode: PermissionMode;
+  permissions: PermissionsConfig;
+  worktree: {
+    enabled: boolean;
+    strategy: string;
+    baseBranch: string;
+    cleanupOnSuccess?: boolean;
+    cleanupOnFailure?: boolean;
+    prLabels?: string[];
+  };
+}
+
 export interface ProviderEntry {
   provider: string;
   enabled: boolean;
@@ -148,6 +169,7 @@ export interface WorkspaceConfig {
 export interface TaskSmithConfig {
   system: { name: string; version: string; logLevel: string };
   workspace: WorkspaceConfig;
+  engine: EngineConfig;
   communication: {
     outbound: ProviderEntry[];
     inbound: ProviderEntry[];
