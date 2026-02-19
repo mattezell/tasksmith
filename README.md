@@ -4,7 +4,7 @@ Lightweight agent orchestration built on [Claude Code](https://docs.anthropic.co
 
 Drop a task file. Walk away. Come back to passing tests.
 
-TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Schedule recurring tasks with cron. Under 5,000 lines of core TypeScript. 8 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
+TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Schedule recurring tasks with cron. Under 5,000 lines of core TypeScript. 9 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
 
 ```bash
 npm install -g tasksmith-cli
@@ -123,6 +123,55 @@ engine:
 | **`branch-only`** | Pushes the branch — you decide what to do |
 
 On failure, the worktree is discarded. No damage to main. Override per-task with `params.worktree_strategy` or disable with `params.worktree: false`.
+
+### Sandbox Isolation
+
+Wrap Claude Code invocations in OS-level process isolation — without Docker. Uses bubblewrap (Linux/WSL2) and Seatbelt (macOS), the same primitives Claude Code uses internally. Zero daemon. Minimal overhead.
+
+```yaml
+plugins:
+  - name: sandbox
+    config:
+      enabled: false                    # opt-in per task (recommended)
+      allowUnsandboxedCommands: false   # lock the escape hatch
+```
+
+**Per-task opt-in:**
+
+```yaml
+params:
+  sandbox: true
+  sandbox_domains: ["pypi.org", "stripe.com"]  # extend allowlist for this task
+```
+
+**Per-task opt-out** (when globally enabled):
+
+```yaml
+params:
+  sandbox: false
+```
+
+**What's blocked by default:**
+
+| Category | Blocked |
+|----------|---------|
+| Filesystem reads | `~/.ssh`, `~/.aws`, `~/.config/gcloud`, `~/.gnupg`, `~/.netrc` |
+| Filesystem writes | `.env`, `.env.*`, `~/.bashrc`, `~/.zshrc`, `~/.profile` |
+| Network | All domains not on the allowlist |
+
+**What's allowed:** `api.anthropic.com`, `registry.npmjs.org`, `pypi.org`, `github.com` and a few more. Full list in `src/plugins/bundled/sandbox.ts`.
+
+**Escape hatch:** By default (`allowUnsandboxedCommands: false`), Claude Code cannot self-authorize a sandbox bypass. Violations fail hard. Set to `true` only if you need Claude Code to run commands that legitimately need unrestricted access.
+
+**vs. Docker plugin:** Use sandbox for lightweight OS-level isolation on trusted tasks. Use Docker when you need custom base environments, strict resource limits, or DinD. They're complementary — you can run both.
+
+**Install the runtime** (optional but recommended — avoids `npx` overhead):
+
+```bash
+npm install @anthropic-ai/sandbox-runtime
+```
+
+TaskSmith falls back to `npx srt` automatically when the package isn't installed.
 
 ### Scheduled Tasks
 
@@ -279,6 +328,7 @@ plugins:
 | **proxmox** | Proxmox VM provisioning. Clone from templates, snapshot/rollback, lifecycle management. CLI: `tasksmith proxmox` |
 | **cloudflare** | Cloudflare Pages deployments. Auto-deploy on task success, rollback, cache purge. Uses `wrangler` CLI. CLI: `tasksmith cf` |
 | **semantic-memory** | Vector-based semantic search over task history. Supports Ollama (local), OpenAI, or Gemini embeddings. CLI: `tasksmith semantic` |
+| **sandbox** | OS-level process isolation via `@anthropic-ai/sandbox-runtime`. Filesystem + network boundaries. No Docker required. macOS/Linux/WSL2. |
 
 Plugins with config:
 
@@ -630,6 +680,10 @@ plugins:
       pages:
         projectName: "my-site"
         deployDir: "site/"
+  - name: sandbox
+    config:
+      enabled: false                   # true = all tasks, false = opt-in per task
+      allowUnsandboxedCommands: false  # lock escape hatch (recommended)
 ```
 
 Config layering: defaults → global `~/.tasksmith` → project-local `.tasksmith/`
@@ -756,7 +810,7 @@ This means you can run the engine in `supervised` mode but submit individual tas
 ├──────────────────────────────────────────┤
 │    Bundled Plugins (github, metrics,     │
 │    docker, jira, postgres, proxmox,      │
-│    cloudflare, semantic-memory)          │
+│    cloudflare, semantic-memory, sandbox) │
 ├──────────────────────────────────────────┤
 │    Community Plugins (npm discovery)     │
 └──────────────────────────────────────────┘
@@ -789,10 +843,11 @@ src/
     ├── postgres.ts       229 lines   PostgreSQL task history
     ├── proxmox.ts        295 lines   Proxmox VM provisioning
     ├── cloudflare.ts     487 lines   Cloudflare Pages deployments
-    └── semantic-memory   451 lines   Vector-based semantic search
+    ├── semantic-memory   451 lines   Vector-based semantic search
+    └── sandbox.ts        303 lines   OS-level sandbox isolation
 ```
 
-**Under 5,000 lines of core TypeScript** + 2,573 lines across 8 bundled plugins. Every module fits in your head.
+**Under 5,000 lines of core TypeScript** + 2,892 lines across 9 bundled plugins. Every module fits in your head.
 
 ### Design Principles
 

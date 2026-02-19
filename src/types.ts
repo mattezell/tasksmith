@@ -130,6 +130,69 @@ export interface FileSyncProvider {
 }
 
 // =============================================================================
+// SANDBOX CONFIG
+// =============================================================================
+
+/**
+ * Configuration for the sandbox plugin.
+ * Surfaces through config layering: global → project-local → task params.
+ *
+ * Per-task overrides via task.params:
+ *   sandbox: true | false    — opt this task in/out regardless of plugin default
+ *   sandbox_domains: string[] — additional domains for this task only
+ */
+export interface SandboxConfig {
+  /**
+   * Sandbox tasks by default. When false (recommended), tasks must opt in
+   * via params.sandbox: true. Default: false.
+   */
+  enabled?: boolean;
+
+  /**
+   * Additional domains Claude Code is allowed to reach.
+   * Merged with the built-in allowlist (Anthropic API, npm, pip, GitHub).
+   * Wildcards supported: "*.example.com"
+   */
+  allowedDomains?: string[];
+
+  /**
+   * Domains explicitly blocked even if they appear in allowedDomains.
+   */
+  deniedDomains?: string[];
+
+  /**
+   * Additional filesystem paths the sandboxed process may write to,
+   * beyond cwd and /tmp (always included).
+   */
+  allowWrite?: string[];
+
+  /**
+   * Additional paths blocked from reading.
+   * ~/.ssh, ~/.aws, ~/.config/gcloud, ~/.gnupg, ~/.netrc are always blocked.
+   */
+  denyRead?: string[];
+
+  /**
+   * Additional paths blocked from writing.
+   * .env, .env.*, shell config files are always blocked.
+   */
+  denyWrite?: string[];
+
+  /**
+   * When false (strongly recommended): Claude Code's dangerouslyDisableSandbox
+   * escape hatch is completely disabled. Violations fail hard.
+   * When true: Claude Code can self-authorize bypassing sandbox restrictions.
+   * Default: false (escape hatch locked).
+   */
+  allowUnsandboxedCommands?: boolean;
+
+  /**
+   * Write sandbox violation attempts to task output and memory. Default: true.
+   */
+  logViolations?: boolean;
+}
+
+// =============================================================================
 // CONFIG TYPES
 // =============================================================================
 

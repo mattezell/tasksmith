@@ -105,6 +105,7 @@ export class Coordinator {
     this.engine.memory = this.memory;
     this.engine.hotMemory = this.hotMemory;
     this.engine.archiver = this.archiver;
+    this.engine.pluginManager = this.pluginManager; // enables command wrappers (sandbox plugin)
   }
 
   // ── Inbound Handler ────────────────────────────────────────────

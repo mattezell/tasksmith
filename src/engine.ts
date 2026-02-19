@@ -18,6 +18,7 @@ import type {
   OutboundCommsProvider, MemoryProvider, TaskSmithConfig,
 } from "./types.js";
 import type { MarkdownMemoryProvider } from "./providers/memory/providers.js";
+import type { PluginManager } from "./plugins.js";
 import { resolveTemplate, isTaskFile, parseTaskFile } from "./config.js";
 import type { SessionArchiver } from "./providers/memory/providers.js";
 
@@ -36,6 +37,12 @@ export class TaskEngine {
   memory: MemoryProvider[] = [];
   hotMemory: MarkdownMemoryProvider | null = null;
   archiver: SessionArchiver | null = null;
+
+  /**
+   * Injected by coordinator after plugins are activated.
+   * Used to run command wrappers (e.g. sandbox plugin) before spawning claude.
+   */
+  pluginManager: PluginManager | null = null;
 
   private processing = new Set<string>();
 
@@ -109,7 +116,7 @@ export class TaskEngine {
 
   // ── Claude Code Invocation ─────────────────────────────────────────
 
-  private invokeCC(prompt: string, task: Task, cwdOverride?: string): { ok: boolean; output?: string; error?: string } {
+  private async invokeCC(prompt: string, task: Task, cwdOverride?: string): Promise<{ ok: boolean; output?: string; error?: string }> {
     const ccProviders = this.config.models?.providers || [];
     const ccCfg = ccProviders.find((p: any) => p.provider === "claude_code")?.config || {};
     const engineCfg = this.config.engine || {};
@@ -153,15 +160,32 @@ export class TaskEngine {
 
     const timeout = (this.defaults.timeoutMinutes || 30) * 60 * 1000;
 
+    // Run through plugin command wrappers (e.g. sandbox plugin prepends `srt`).
+    // Only use shell: true when a wrapper actually transformed the command —
+    // otherwise use array-style spawn to avoid shell metacharacter interpretation
+    // of prompt content.
+    let wrappedCommand: string | null = null;
+    if (this.pluginManager) {
+      const baseCommand = ["claude", ...args].join(" ");
+      const transformed = await this.pluginManager.applyCommandWrappers(baseCommand, task);
+      if (transformed !== baseCommand) wrappedCommand = transformed;
+    }
+
     console.log(`[engine] CC invoke: mode=${mode} model=${task.model} project=${task.project || "none"}`);
 
     try {
-      const result = spawnSync("claude", args, {
+      const spawnOpts = {
         cwd: cwd && existsSync(cwd) ? cwd : undefined,
         timeout,
-        encoding: "utf-8",
+        encoding: "utf-8" as const,
         maxBuffer: 50 * 1024 * 1024, // 50MB
-      });
+      };
+
+      // Wrapped command (e.g. "npx srt ... claude ...") needs shell parsing.
+      // Unwrapped uses safe array-style spawn — no shell metacharacter risk.
+      const result = wrappedCommand
+        ? spawnSync(wrappedCommand, [], { ...spawnOpts, shell: true })
+        : spawnSync("claude", args, spawnOpts);
 
       if (result.status === 0) {
         return { ok: true, output: result.stdout };
@@ -245,7 +269,7 @@ export class TaskEngine {
           prompt += `\n\n<previous_error>\nIteration ${i - 1} failed:\n${lastErr}\nFix the issues and try again.\n</previous_error>`;
         }
 
-        const result = this.invokeCC(prompt, task, cwdOverride);
+        const result = await this.invokeCC(prompt, task, cwdOverride);
 
         if (!result.ok) {
           lastErr = result.error || "Unknown error";

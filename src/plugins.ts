@@ -59,7 +59,7 @@ import { createRequire } from "node:module";
 import chalk from "chalk";
 import type {
   OutboundCommsProvider, InboundCommsProvider, MemoryProvider,
-  InboundCallback, Notification, MemoryEntry, MemorySearchResult,
+  InboundCallback, Notification, MemoryEntry, MemorySearchResult, Task,
 } from "./types.js";
 
 // =============================================================================
@@ -89,6 +89,15 @@ export interface PluginContext {
   /** Register a hook into the task lifecycle */
   addHook(event: PluginHookEvent, handler: PluginHook): void;
 
+  /**
+   * Register a command wrapper — called by the engine before spawning Claude Code.
+   * The handler receives the full command string and must return the (possibly
+   * wrapped) command. Used by the sandbox plugin to prepend `srt` invocation.
+   * Multiple wrappers compose left-to-right. Non-breaking: plugins without this
+   * registration are completely unaffected.
+   */
+  addCommandWrapper(handler: CommandWrapperHook): void;
+
   /** Access the workspace directory */
   readonly workspace: string;
 
@@ -117,6 +126,13 @@ export type PluginHookEvent =
   | "onShutdown";         // When the engine shuts down
 
 export type PluginHook = (data: Record<string, unknown>) => void | Promise<void> | Record<string, unknown> | Promise<Record<string, unknown>>;
+
+/**
+ * Command wrapper hook — registered via ctx.addCommandWrapper().
+ * Receives the full claude CLI command string and the task; returns the wrapped command.
+ * Multiple wrappers compose left-to-right (each wraps the output of the previous).
+ */
+export type CommandWrapperHook = (command: string, task: Task) => string | Promise<string>;
 
 export interface PluginCommandHandler {
   description: string;
@@ -157,6 +173,7 @@ interface LoadedPlugin {
 export class PluginManager {
   private plugins: Map<string, LoadedPlugin> = new Map();
   private hooks: Map<PluginHookEvent, Array<{ pluginName: string; handler: PluginHook }>> = new Map();
+  private commandWrappers: Array<{ pluginName: string; handler: CommandWrapperHook }> = [];
   private templates: Map<string, string> = new Map(); // name → dir
   private commands: Map<string, { pluginName: string; handler: PluginCommandHandler }> = new Map();
   private additionalOutbound: OutboundCommsProvider[] = [];
@@ -440,6 +457,9 @@ export class PluginManager {
         if (!self.hooks.has(event)) self.hooks.set(event, []);
         self.hooks.get(event)!.push({ pluginName, handler });
       },
+      addCommandWrapper(handler: CommandWrapperHook) {
+        self.commandWrappers.push({ pluginName, handler });
+      },
 
       log: {
         info: (msg: string) => console.log(`  [${chalk.cyan(pluginName)}] ${msg}`),
@@ -457,6 +477,23 @@ export class PluginManager {
   getTemplates(): Map<string, string> { return new Map(this.templates); }
   getCommands(): Map<string, { pluginName: string; handler: PluginCommandHandler }> { return new Map(this.commands); }
   getLoadedPlugins(): string[] { return [...this.plugins.keys()]; }
+  getCommandWrappers(): Array<{ pluginName: string; handler: CommandWrapperHook }> { return [...this.commandWrappers]; }
+
+  /**
+   * Run a command string through all registered command wrappers.
+   * Left-to-right composition. No-op if no wrappers registered.
+   */
+  async applyCommandWrappers(command: string, task: Task): Promise<string> {
+    let current = command;
+    for (const { pluginName, handler } of this.commandWrappers) {
+      try {
+        current = await handler(current, task);
+      } catch (e: any) {
+        console.error(`[commandWrapper] ${pluginName} error: ${e.message}`);
+      }
+    }
+    return current;
+  }
 
   /**
    * Execute all hooks for a given event.

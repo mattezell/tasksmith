@@ -78,7 +78,7 @@ function parseUserDefaults(ws: string): Record<string, string> {
 // =============================================================================
 
 async function stepPrereqs(): Promise<boolean> {
-  step(1, 9, "Prerequisites Check");
+  step(1, 10, "Prerequisites Check");
   const checks: [string, string][] = [["Claude Code CLI", "claude --version"], ["Node.js 18+", "node --version"], ["git", "git --version"]];
   const optional: [string, string][] = [["Ollama", "ollama --version"], ["Docker", "docker --version"]];
 
@@ -105,13 +105,13 @@ async function stepPrereqs(): Promise<boolean> {
 }
 
 async function stepInit(ws: string) {
-  step(2, 9, "Initialize Workspace");
+  step(2, 10, "Initialize Workspace");
   scaffoldWorkspace(ws);
   console.log(`    ${chalk.green("✓")} Workspace at ${ws}`);
 }
 
 async function stepSoul(ws: string) {
-  step(3, 9, "SOUL.md — How Claude Works For You");
+  step(3, 10, "SOUL.md — How Claude Works For You");
 
   const prev = parseSoulDefaults(ws);
   const answers = await inquirer.prompt([
@@ -152,7 +152,7 @@ ${answers.anti.split(",").map((p: string) => `- ${p.trim()}`).join("\n")}
 }
 
 async function stepUser(ws: string) {
-  step(4, 9, "USER.md — About You");
+  step(4, 10, "USER.md — About You");
 
   const prev = parseUserDefaults(ws);
   const answers = await inquirer.prompt([
@@ -182,7 +182,7 @@ async function stepUser(ws: string) {
 }
 
 async function stepComms(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(5, 9, "Communication");
+  step(5, 10, "Communication");
 
   const isEnabled = (p: string) => config.communication.outbound.find(e => e.provider === p)?.enabled ?? false;
   const { outbound } = await inquirer.prompt([{
@@ -252,7 +252,7 @@ async function stepComms(ws: string, config: TaskSmithConfig): Promise<TaskSmith
 }
 
 async function stepModels(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(6, 9, "Model Routing");
+  step(6, 10, "Model Routing");
 
   let ollamaModels: string[] = [];
   try {
@@ -289,7 +289,7 @@ async function stepModels(ws: string, config: TaskSmithConfig): Promise<TaskSmit
 }
 
 async function stepMemory(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(7, 9, "Memory System");
+  step(7, 10, "Memory System");
   console.log("    Baseline (always on): markdown hot + JSONL warm");
 
   // Init files
@@ -307,7 +307,7 @@ async function stepMemory(ws: string, config: TaskSmithConfig): Promise<TaskSmit
 }
 
 async function stepEngine(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(8, 9, "Engine & Permissions");
+  step(8, 10, "Engine & Permissions");
   console.log("    Controls how autonomous Claude Code is during task execution.\n");
 
   if (!config.engine) (config as any).engine = {};
@@ -348,8 +348,120 @@ async function stepEngine(ws: string, config: TaskSmithConfig): Promise<TaskSmit
   return config;
 }
 
+async function stepSandbox(config: TaskSmithConfig): Promise<TaskSmithConfig> {
+  step(9, 10, "Sandbox Isolation");
+
+  console.log(chalk.gray(`
+    TaskSmith can wrap every Claude Code invocation in an OS-level sandbox,
+    enforcing filesystem and network boundaries without Docker.
+
+    ${chalk.white("What it blocks by default:")}
+      • Reading ~/.ssh, ~/.aws, and credential files
+      • Writing .env files or shell config (bashrc, zshrc)
+      • Network calls to non-allowlisted domains
+      • File writes outside the project directory
+
+    ${chalk.white("Platform:")} macOS (Seatbelt) · Linux/WSL2 (bubblewrap)
+    ${chalk.white("Overhead:")} Minimal — same primitives Claude Code uses internally.
+  `));
+
+  const { enableSandbox } = await inquirer.prompt([{
+    type: "confirm",
+    name: "enableSandbox",
+    message: "Enable sandbox isolation?",
+    default: false,
+  }]);
+
+  if (!enableSandbox) {
+    console.log(chalk.gray("    Skipped. Enable anytime: add sandbox to plugins in your config."));
+    return config;
+  }
+
+  // Platform-specific guidance
+  const os = process.platform;
+  if (os === "win32") {
+    console.log(chalk.yellow(`
+    ⚠  Native Windows not yet supported upstream.
+       Use WSL2 to get sandbox support.
+       Plugin will be added to config but will skip gracefully on Windows.`));
+  } else if (os === "linux") {
+    console.log(chalk.gray(`
+    Linux requires bubblewrap. Install if needed:
+      ${chalk.white("sudo apt install bubblewrap")}   # Debian/Ubuntu
+      ${chalk.white("sudo dnf install bubblewrap")}   # Fedora/RHEL`));
+  }
+
+  const { sandboxDefault } = await inquirer.prompt([{
+    type: "list",
+    name: "sandboxDefault",
+    message: "When should tasks run sandboxed?",
+    choices: [
+      { name: "Opt-in  — only tasks with params.sandbox: true  (recommended)", value: false },
+      { name: "All tasks  — sandbox everything by default", value: true },
+    ],
+    default: false,
+  }]);
+
+  const { lockEscapeHatch } = await inquirer.prompt([{
+    type: "confirm",
+    name: "lockEscapeHatch",
+    message: "Lock the sandbox escape hatch? (prevents Claude Code from bypassing restrictions)",
+    default: true,
+  }]);
+
+  const { installRuntime } = await inquirer.prompt([{
+    type: "confirm",
+    name: "installRuntime",
+    message: "Install @anthropic-ai/sandbox-runtime now? (recommended — avoids npx overhead)",
+    default: true,
+  }]);
+
+  if (installRuntime) {
+    console.log(chalk.gray("\n    Installing @anthropic-ai/sandbox-runtime..."));
+    try {
+      execSync("npm install @anthropic-ai/sandbox-runtime", { stdio: "inherit" });
+      console.log(chalk.green("    ✓ Installed"));
+    } catch {
+      console.log(chalk.yellow(`    ⚠ Install failed — TaskSmith will fall back to npx srt automatically.
+    Run manually: npm install @anthropic-ai/sandbox-runtime`));
+    }
+  }
+
+  // Write sandbox plugin to config
+  if (!Array.isArray((config as any).plugins)) {
+    (config as any).plugins = [];
+  }
+
+  // Remove any existing sandbox entry to avoid duplicates
+  (config as any).plugins = (config as any).plugins.filter(
+    (p: unknown) => (typeof p === "string" ? p : (p as any).name) !== "sandbox",
+  );
+
+  (config as any).plugins.push({
+    name: "sandbox",
+    config: {
+      enabled: sandboxDefault,
+      allowUnsandboxedCommands: !lockEscapeHatch,
+      logViolations: true,
+    },
+  });
+
+  console.log(chalk.green(`\n    ✓ Sandbox plugin configured.`) +
+    chalk.gray(sandboxDefault
+      ? " All tasks will run sandboxed by default."
+      : " Tasks opt in via params.sandbox: true."));
+
+  if (!sandboxDefault) {
+    console.log(chalk.gray(`
+    Quick start — add to any task file:
+      ${chalk.white("params:\n        sandbox: true")}`));
+  }
+
+  return config;
+}
+
 async function stepSmokeTest(ws: string, config: TaskSmithConfig) {
-  step(9, 9, "Smoke Test");
+  step(10, 10, "Smoke Test");
 
   const enabled = config.communication.outbound.filter(e => e.enabled);
   if (enabled.length) {
@@ -393,12 +505,14 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
     models: () => stepModels(ws, config),
     memory: () => stepMemory(ws, config),
     engine: () => stepEngine(ws, config),
+    sandbox: () => stepSandbox(config),
     test: () => stepSmokeTest(ws, config),
   };
 
   if (stepName && stepName in steps) {
     const result = await steps[stepName]();
     if (result?.communication) config = result;
+    else if (result?.plugins !== undefined || result?.taskDefaults !== undefined) config = result;
   } else {
     const ok = await stepPrereqs();
     if (!ok) {
@@ -412,6 +526,7 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
     config = await stepModels(ws, config);
     config = await stepMemory(ws, config);
     config = await stepEngine(ws, config);
+    config = await stepSandbox(config);
     await stepSmokeTest(ws, config);
   }
 
@@ -425,7 +540,7 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
     Check status:   ${chalk.bold("tasksmith status")}
 
     Re-run a step:  ${chalk.bold("tasksmith setup --step NAME")}
-    Steps: prereqs, dirs, soul, user, comms, models, memory, engine, test
+    Steps: prereqs, dirs, soul, user, comms, models, memory, engine, sandbox, test
 `);
 
   console.log(chalk.yellow.bold("  ⚠  Security Notice\n"));
@@ -434,6 +549,7 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
   console.log(`  ${chalk.dim("•")} Start with supervised mode until you're comfortable`);
   console.log(`  ${chalk.dim("•")} Use autonomous mode with a restrictive allow list for unattended runs`);
   console.log(`  ${chalk.dim("•")} Only use yolo mode in isolated environments (Docker, VM)`);
+  console.log(`  ${chalk.dim("•")} Use the sandbox plugin to contain filesystem + network access`);
   console.log(`  ${chalk.dim("•")} Never expose the REST API to the internet without auth`);
   console.log(`  ${chalk.dim("•")} Restrict Discord bot to private channels with trusted users`);
   console.log(`  ${chalk.dim("•")} Use Docker isolation for untrusted or high-risk tasks`);

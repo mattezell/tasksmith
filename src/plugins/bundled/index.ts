@@ -12,6 +12,7 @@
  *     - jira
  *     - postgres
  *     - proxmox
+ *     - sandbox
  *
  * Bundled plugins load BEFORE npm-discovered plugins,
  * so they can be overridden by installing an npm package with the same name.
@@ -29,6 +30,7 @@ const BUNDLED_PLUGINS: Record<string, () => Promise<{ default: PluginActivateFn 
   proxmox:    () => import("./proxmox.js"),
   cloudflare: () => import("./cloudflare.js"),
   "semantic-memory": () => import("./semantic-memory.js"),
+  sandbox:    () => import("./sandbox.js"),
 };
 
 /** List of all bundled plugin names */
@@ -82,5 +84,9 @@ export const BUNDLED_PLUGIN_INFO: Record<string, { description: string; configKe
   "semantic-memory": {
     description: "Vector-based semantic memory search via local Ollama embeddings",
     configKeys: ["ollamaUrl", "model", "embeddingsFile", "maxResults", "minSimilarity"],
+  },
+  sandbox: {
+    description: "OS-level process isolation via @anthropic-ai/sandbox-runtime — filesystem + network boundaries without Docker",
+    configKeys: ["enabled", "allowedDomains", "deniedDomains", "allowWrite", "denyRead", "denyWrite", "allowUnsandboxedCommands", "logViolations"],
   },
 };

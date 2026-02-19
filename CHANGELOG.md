@@ -5,6 +5,49 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-02-19
+
+### Added
+- **Sandbox plugin** (`sandbox`) — OS-level process isolation for Claude Code invocations via `@anthropic-ai/sandbox-runtime`. Uses bubblewrap on Linux/WSL2 and Seatbelt on macOS. No Docker required.
+  - Filesystem isolation: blocks reads to `~/.ssh`, `~/.aws`, `~/.config/gcloud`, `~/.gnupg`, `~/.netrc`; blocks writes to `.env`, `.env.*`, shell config files
+  - Network isolation: domain allowlist enforced at the OS level, blocks arbitrary outbound connections including under prompt injection
+  - Per-task opt-in via `params.sandbox: true`; global default via `enabled: true` in plugin config
+  - Per-task domain extensions via `params.sandbox_domains`
+  - Escape hatch lockdown: `allowUnsandboxedCommands: false` eliminates Claude Code's `dangerouslyDisableSandbox` bypass
+  - Violation logging to task output
+  - Per-task settings files scoped to task ID — parallel workers with different configs don't collide
+  - Programmatic `SandboxManager` API with `npx srt` CLI fallback (no package install required)
+  - Graceful skip with warning on unsupported platforms (native Windows)
+- **`addCommandWrapper` plugin hook** — new method on `PluginContext`. Plugins register command wrapper functions called by the engine before spawning Claude Code. Wrappers compose left-to-right. Non-breaking: existing plugins unaffected.
+- **`PluginManager.applyCommandWrappers()`** — runs a command string through all registered wrappers. Engine calls this before every Claude Code invocation.
+- **`CommandWrapperHook` type** — exported from `plugins.ts`.
+- **Onboarding wizard: Sandbox step** — new step 9 (of 10) in `tasksmith setup`. Explains security model, prompts for opt-in vs. all-tasks default, escape hatch lockdown, and optional `@anthropic-ai/sandbox-runtime` install. Platform-aware: warns on Linux re: bubblewrap, warns on Windows re: WSL2.
+- **`SandboxConfig` interface** in `types.ts` — fully typed + JSDoc'd. Documents all config keys and per-task params (`sandbox`, `sandbox_domains`).
+- **README: Sandbox Isolation section** — comprehensive docs including default blocks, config, per-task overrides, escape hatch, and Docker comparison.
+
+### Changed
+- `engine.ts` — `invokeCC()` is now `async`. Claude Code invocation routes through `pluginManager.applyCommandWrappers()` before spawning. Uses `shell: true` on `spawnSync` to support wrapped commands. Backwards-compatible when no wrappers are registered.
+- `engine.ts` — new `pluginManager` property (injected by coordinator after plugin activation).
+- `plugins.ts` — `PluginContext` gains `addCommandWrapper()` method. `PluginManager` gains `getCommandWrappers()` and `applyCommandWrappers()`. `Task` added to imports.
+- `src/plugins/bundled/index.ts` — `sandbox` added to lazy-load registry and `BUNDLED_PLUGIN_INFO` (9th bundled plugin).
+- `coordinator.ts` — injects `pluginManager` into engine for command wrapper support.
+- `onboarding.ts` — step counters updated 9→10, sandbox step inserted after engine step, step map gains `sandbox` key, security notice includes sandbox guidance.
+- Plugin count updated across README and site (8→9).
+- Version bumped to 0.8.1.
+
+### Security
+- Prompt injection attacks that attempt data exfiltration are now containable at the OS level when the sandbox plugin is active.
+- SSH keys, AWS credentials, and cloud provider credentials blocked at filesystem read level by default.
+- `.env` files and shell configuration files blocked at write level by default.
+- Escape hatch (`dangerouslyDisableSandbox`) locked by default — Claude Code cannot self-authorize sandbox bypass.
+- Permission modes (0.8.0) and sandbox (0.8.1) are complementary: permission modes control Claude Code's tool access, sandbox controls OS-level process boundaries.
+
+### Notes
+- Sandbox plugin is opt-in by default. Existing installations are unaffected until the plugin is added to config.
+- `@anthropic-ai/sandbox-runtime` is optional. TaskSmith falls back to `npx srt` when not installed.
+- Platform support: macOS, Linux, WSL2. Native Windows support planned upstream.
+- Docker plugin remains for heavier isolation (custom base environments, resource limits). Sandbox and Docker are complementary.
+
 ## [0.8.0] - 2026-02-18
 
 ### Added
