@@ -6,8 +6,8 @@
  */
 
 import { watch } from "chokidar";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync, renameSync, unlinkSync } from "node:fs";
+import { join, basename, dirname } from "node:path";
 import type {
   OutboundCommsProvider,
   InboundCommsProvider,
@@ -197,7 +197,10 @@ export class FileDropProvider implements InboundCommsProvider {
     this.watcher = watch(this.inboxPath, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 500 } });
 
     this.watcher.on("add", async (filePath: string) => {
-      if (!filePath.endsWith(".yaml") && !filePath.endsWith(".yml") && !filePath.endsWith(".json")) return;
+      const fileName = basename(filePath);
+      if (!fileName.endsWith(".yaml") && !fileName.endsWith(".yml") && !fileName.endsWith(".json")) return;
+      // Skip claimed files (our own renames) to avoid retriggering
+      if (fileName.startsWith(".")) return;
 
       // Deduplicate: skip if this exact path was processed within the window.
       // This guards against WSL2/inotify firing multiple events for one write.
@@ -215,17 +218,28 @@ export class FileDropProvider implements InboundCommsProvider {
         }
       }
 
+      // Atomic claim: rename the file so scanInbox can't see it.
+      // If rename fails (ENOENT), scanInbox already moved it — skip.
+      const claimedPath = join(dirname(filePath), `.claimed-${fileName}`);
       try {
-        const content = readFileSync(filePath, "utf-8");
+        renameSync(filePath, claimedPath);
+      } catch {
+        return; // File already moved by scanInbox — no duplicate
+      }
+
+      try {
+        const content = readFileSync(claimedPath, "utf-8");
         await callback({
           source: "file_drop",
           sender: "local",
           content,
           timestamp: new Date(),
-          metadata: { filePath },
+          metadata: { filePath: claimedPath },
         });
       } catch (e) {
         console.error(`[file_drop] Error processing ${filePath}: ${e}`);
+      } finally {
+        try { unlinkSync(claimedPath); } catch { /* already cleaned up */ }
       }
     });
 

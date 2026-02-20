@@ -605,13 +605,16 @@ export class TaskEngine {
       const content = readFileSync(filePath, "utf-8");
       const task = this.parseTask(content, filePath);
 
-      // Move to active
+      // Atomic claim: rename moves the file out of inbox.
+      // If this fails with ENOENT, the file watcher already claimed it — skip.
       const activeFile = join(this.active, `${task.id}.yaml`);
       renameSync(filePath, activeFile);
 
       console.log(`[engine] Picked up ${task.id}`);
       return task;
     } catch (e: any) {
+      // ENOENT = file was already claimed by the watcher (normal race, not an error)
+      if (e.code === "ENOENT") return null;
       console.error(`[engine] Failed to process ${fileName}: ${e.message}`);
       try { renameSync(filePath, join(this.failed, fileName)); } catch { /* ignore */ }
       return null;
