@@ -103,6 +103,7 @@ Collected during the v0.8.2 development session. These are concrete, scoped item
 
 ### Engine Improvements
 
+- **Auto-commit before merge** — Claude Code in yolo/autonomous mode doesn't necessarily `git commit` its work. The worktree finalize step assumes commits exist to merge, but if Claude leaves changes uncommitted, auto-merge has nothing to merge and the work is stranded as dirty files in the worktree. The pool's finalize should: (1) check for uncommitted changes in the worktree, (2) auto-commit them with a descriptive message before attempting merge/PR. This was the root cause of merge failures in the v0.8.2 CCPort campaign.
 - **Worktree-aware execution after branch failure** — Currently if worktree creation fails, the task runs in the project directory directly (no isolation). Should either retry with a unique branch suffix or clearly warn that isolation is lost.
 - **Graceful iteration resume** — Track iteration progress in the task YAML so restarted tasks can resume from the last completed iteration instead of starting over.
 - **Per-task cost aggregation** — Sum `total_cost_usd` across all iterations for a task and write it to the completed task YAML. Feeds into the v0.9.0 cost tracking feature.
