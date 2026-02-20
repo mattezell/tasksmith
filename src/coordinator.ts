@@ -121,6 +121,19 @@ export class Coordinator {
     }
   }
 
+  /**
+   * Submit a parsed task directly to the pool, bypassing the inbox.
+   * Writes to active/ (not inbox/) so the file watcher and scanInbox
+   * don't re-process it, avoiding the watcher -> handleInbound -> write
+   * -> watcher infinite loop.
+   */
+  private submitTask(task: Task, source: string): void {
+    const activeFile = join(this.workspace, "tasks", "active", `${task.id}.yaml`);
+    writeFileSync(activeFile, yaml.dump(task));
+    this.pool!.submit(task);
+    console.log(`[coordinator] Submitted ${task.id} from ${source}`);
+  }
+
   private async handleInbound(msg: InboundMessage): Promise<void> {
     const content = msg.content.trim();
 
@@ -131,10 +144,8 @@ export class Coordinator {
         if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
           const taskYaml = yaml.dump(data);
           const task = this.engine.parseTask(taskYaml, msg.source);
-          const taskFile = join(this.workspace, "tasks", "inbox", `${task.id}.yaml`);
-          writeFileSync(taskFile, yaml.dump(task));
           this.cleanupSourceFile(msg);
-          console.log(`[coordinator] Queued JSON task ${task.id} from ${msg.source}`);
+          this.submitTask(task, msg.source);
           return;
         }
       } catch { /* Not valid JSON, continue */ }
@@ -145,20 +156,16 @@ export class Coordinator {
       const data = yaml.load(content) as Record<string, any>;
       if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
         const task = this.engine.parseTask(content, msg.source);
-        const taskFile = join(this.workspace, "tasks", "inbox", `${task.id}.yaml`);
-        writeFileSync(taskFile, yaml.dump(task));
         this.cleanupSourceFile(msg);
-        console.log(`[coordinator] Queued task ${task.id} from ${msg.source}`);
+        this.submitTask(task, msg.source);
         return;
       }
     } catch { /* Not YAML, try NL */ }
 
     // Natural language → task
     const task = this.nlToTask(content, msg);
-    const taskFile = join(this.workspace, "tasks", "inbox", `${task.id}.yaml`);
-    writeFileSync(taskFile, yaml.dump(task));
     this.cleanupSourceFile(msg);
-    console.log(`[coordinator] Queued NL task ${task.id} from ${msg.source}:${msg.sender}`);
+    this.submitTask(task, msg.source);
   }
 
   private nlToTask(text: string, msg: InboundMessage): Task {

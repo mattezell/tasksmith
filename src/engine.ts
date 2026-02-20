@@ -204,7 +204,7 @@ export class TaskEngine {
         cwd: spawnCwd,
         shell: useShell,
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
+        env: { ...process.env, CLAUDECODE: undefined },
       });
 
       const timer = setTimeout(() => {
