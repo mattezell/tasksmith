@@ -111,7 +111,7 @@ engine:
   concurrency: 3
   worktree:
     enabled: true
-    strategy: "pr"           # "pr" | "auto-merge" | "branch-only"
+    strategy: "pr"           # "pr" | "auto-merge" | "branch-only" | "local"
     baseBranch: "main"
     prLabels: ["tasksmith", "automated"]
 ```
@@ -121,8 +121,9 @@ engine:
 | **`pr`** (default) | Commits, pushes, opens a GitHub PR via `gh` CLI |
 | **`auto-merge`** | Merges into base branch (falls back to PR on conflicts) |
 | **`branch-only`** | Pushes the branch — you decide what to do |
+| **`local`** | Purely local — no push, no merge. Worktree and branch stay on disk for manual review |
 
-On failure, the worktree is discarded. No damage to main. Override per-task with `params.worktree_strategy` or disable with `params.worktree: false`.
+On failure, the worktree is discarded (except `local`, which always preserves). No damage to main. Override per-task with `params.worktree_strategy` or disable with `params.worktree: false`.
 
 ### Sandbox Isolation
 

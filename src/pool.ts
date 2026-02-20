@@ -33,7 +33,7 @@ import type { Task } from "./types.js";
 
 // ── Config Types ────────────────────────────────────────────────────
 
-export type WorktreeStrategy = "pr" | "auto-merge" | "branch-only";
+export type WorktreeStrategy = "pr" | "auto-merge" | "branch-only" | "local";
 
 export interface WorktreeConfig {
   enabled: boolean;
@@ -158,7 +158,17 @@ export class WorktreeManager {
       cwd: wt.path, encoding: "utf-8", stdio: "pipe",
     });
 
-    // Push the branch
+    let result: string | null = null;
+
+    // "local" strategy stays entirely on disk — no push, no merge, no cleanup.
+    // The worktree and branch remain for manual review.
+    if (strategy === "local") {
+      result = `Local worktree ready: ${wt.path} (branch: ${wt.branch})`;
+      this.log.info(`Local worktree preserved: ${wt.path} — branch: ${wt.branch}`);
+      return result;
+    }
+
+    // All other strategies push the branch first
     const push = spawnSync("git", ["push", "origin", wt.branch], {
       cwd: wt.path, encoding: "utf-8", stdio: "pipe",
     });
@@ -167,8 +177,6 @@ export class WorktreeManager {
       this.log.warn(`Push failed: ${(push.stderr || "").trim()}`);
       // Still try strategies that work locally
     }
-
-    let result: string | null = null;
 
     switch (strategy) {
       case "pr":
