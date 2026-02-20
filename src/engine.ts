@@ -5,7 +5,7 @@
  * manages Ralph Loop, coordinates memory and notifications.
  */
 
-import { execSync, execFileSync, spawnSync } from "node:child_process";
+import { execSync, execFileSync, spawnSync, spawn } from "node:child_process";
 import {
   existsSync, readFileSync, writeFileSync, mkdirSync,
   renameSync, unlinkSync, readdirSync,
@@ -185,29 +185,61 @@ export class TaskEngine {
 
     console.log(`[engine] CC invoke: mode=${mode} model=${task.model} project=${task.project || "none"}`);
 
-    try {
-      const spawnOpts = {
-        cwd: cwd && existsSync(cwd) ? cwd : undefined,
-        timeout,
-        encoding: "utf-8" as const,
-        maxBuffer: 50 * 1024 * 1024, // 50MB
-      };
+    const spawnCwd = cwd && existsSync(cwd) ? cwd : undefined;
 
-      // Wrapped command (e.g. "npx srt ... claude ...") needs shell parsing.
-      // Unwrapped uses safe array-style spawn — no shell metacharacter risk.
-      const result = wrappedCommand
-        ? spawnSync(wrappedCommand, [], { ...spawnOpts, shell: true })
-        : spawnSync("claude", args, spawnOpts);
+    // Use async spawn to avoid blocking the event loop.
+    // spawnSync blocks the entire Node.js process, which prevents the
+    // scan interval, file watchers, and other async tasks from running.
+    // With async spawn, multiple Claude invocations can run concurrently.
+    return new Promise((resolve) => {
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
 
-      if (result.status === 0) {
-        return { ok: true, output: result.stdout };
-      }
-      return { ok: false, error: result.stderr || result.stdout || "Unknown error" };
-    } catch (e: any) {
-      if (e.code === "ENOENT") return { ok: false, error: "Claude Code CLI not found. Is it installed and on PATH?" };
-      if (e.killed) return { ok: false, error: "Task timed out" };
-      return { ok: false, error: e.message };
-    }
+      const cmd = wrappedCommand || "claude";
+      const cmdArgs = wrappedCommand ? [] : args;
+      const useShell = Boolean(wrappedCommand);
+
+      const child = spawn(cmd, cmdArgs, {
+        cwd: spawnCwd,
+        shell: useShell,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+      }, timeout);
+
+      child.stdout.setEncoding("utf-8");
+      child.stderr.setEncoding("utf-8");
+
+      child.stdout.on("data", (data: string) => { stdout += data; });
+      child.stderr.on("data", (data: string) => { stderr += data; });
+
+      child.on("error", (e: NodeJS.ErrnoException) => {
+        clearTimeout(timer);
+        if (e.code === "ENOENT") {
+          resolve({ ok: false, error: "Claude Code CLI not found. Is it installed and on PATH?" });
+        } else {
+          resolve({ ok: false, error: e.message });
+        }
+      });
+
+      child.on("close", (code: number | null) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          resolve({ ok: false, error: "Task timed out" });
+          return;
+        }
+        if (code === 0) {
+          resolve({ ok: true, output: stdout });
+        } else {
+          resolve({ ok: false, error: stderr || stdout || "Unknown error" });
+        }
+      });
+    });
   }
 
   // ── CC Output Parsing & Logging ──────────────────────────────────

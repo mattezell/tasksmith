@@ -27,7 +27,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { Task } from "./types.js";
 
@@ -68,6 +68,8 @@ export interface WorktreeInfo {
   branch: string;
   path: string;
   baseBranch: string;
+  /** The actual git repo root used for worktree operations. */
+  repoPath: string;
 }
 
 export class WorktreeManager {
@@ -78,14 +80,14 @@ export class WorktreeManager {
     private config: WorktreeConfig,
     private log: Logger,
   ) {
-    this.worktreeBaseDir = join(workspace, ".tasksmith", "worktrees");
+    this.worktreeBaseDir = join(workspace, "worktrees");
     mkdirSync(this.worktreeBaseDir, { recursive: true });
   }
 
-  /** Check if workspace is inside a git repo */
-  isGitRepo(): boolean {
+  /** Check if a path is inside a git repo */
+  isGitRepo(cwd: string): boolean {
     const res = spawnSync("git", ["rev-parse", "--git-dir"], {
-      cwd: this.workspace,
+      cwd,
       encoding: "utf-8",
       stdio: "pipe",
     });
@@ -98,14 +100,24 @@ export class WorktreeManager {
     return res.status === 0;
   }
 
-  /** Create an isolated worktree for a task */
-  create(task: Task): WorktreeInfo | null {
+  /**
+   * Create an isolated worktree for a task.
+   * @param task - The task to isolate
+   * @param projectPath - The actual git repo path (resolved from project symlink)
+   */
+  create(task: Task, projectPath: string): WorktreeInfo | null {
+    // Safety check: verify the project path is a git repo
+    if (!this.isGitRepo(projectPath)) {
+      this.log.warn(`[${task.id}] Project path is not a git repo: ${projectPath} — running without worktree`);
+      return null;
+    }
+
     const branch = (task.params.worktree_branch as string) ||
       `tasksmith/${task.template}/${task.id}`;
     const wtPath = join(this.worktreeBaseDir, task.id);
     const base = this.config.baseBranch;
 
-    this.log.info(`Creating worktree: ${branch} (from ${base})`);
+    this.log.info(`Creating worktree: ${branch} (from ${base}) in ${projectPath}`);
 
     // Create a new branch from base and attach a worktree
     const res = spawnSync("git", [
@@ -114,7 +126,7 @@ export class WorktreeManager {
       wtPath,
       base,
     ], {
-      cwd: this.workspace,
+      cwd: projectPath,
       encoding: "utf-8",
       stdio: "pipe",
     });
@@ -124,7 +136,7 @@ export class WorktreeManager {
       return null;
     }
 
-    return { taskId: task.id, branch, path: wtPath, baseBranch: base };
+    return { taskId: task.id, branch, path: wtPath, baseBranch: base, repoPath: projectPath };
   }
 
   /** Finalize a worktree after task execution */
@@ -252,11 +264,11 @@ export class WorktreeManager {
 
   /** Auto-merge branch into base */
   private autoMerge(wt: WorktreeInfo, task: Task): string | null {
-    // Switch to base branch in main repo and merge
+    // Merge worktree branch into base in the project's actual repo
     const merge = spawnSync("git", ["merge", wt.branch, "--no-ff", "-m",
       `[tasksmith] Merge ${wt.branch}: ${task.prompt.slice(0, 60)}`
     ], {
-      cwd: this.workspace,
+      cwd: wt.repoPath,
       encoding: "utf-8",
       stdio: "pipe",
     });
@@ -264,7 +276,7 @@ export class WorktreeManager {
     if (merge.status === 0) {
       this.log.info(`Auto-merged ${wt.branch} into ${wt.baseBranch}`);
       // Optionally push
-      spawnSync("git", ["push"], { cwd: this.workspace, encoding: "utf-8", stdio: "pipe" });
+      spawnSync("git", ["push"], { cwd: wt.repoPath, encoding: "utf-8", stdio: "pipe" });
       return `Merged ${wt.branch} → ${wt.baseBranch}`;
     } else {
       this.log.warn(`Auto-merge failed (conflicts?): ${(merge.stderr || "").trim()}`);
@@ -277,11 +289,11 @@ export class WorktreeManager {
   remove(wt: WorktreeInfo): void {
     try {
       spawnSync("git", ["worktree", "remove", wt.path, "--force"], {
-        cwd: this.workspace, encoding: "utf-8", stdio: "pipe",
+        cwd: wt.repoPath, encoding: "utf-8", stdio: "pipe",
       });
       // Delete the branch if it wasn't merged
       spawnSync("git", ["branch", "-D", wt.branch], {
-        cwd: this.workspace, encoding: "utf-8", stdio: "pipe",
+        cwd: wt.repoPath, encoding: "utf-8", stdio: "pipe",
       });
     } catch {
       // Best effort cleanup
@@ -291,27 +303,37 @@ export class WorktreeManager {
     }
   }
 
-  /** List active worktrees */
+  /**
+   * List active worktrees across all project directories.
+   * Scans the worktreeBaseDir for existing worktrees.
+   */
   list(): WorktreeInfo[] {
-    const res = spawnSync("git", ["worktree", "list", "--porcelain"], {
-      cwd: this.workspace, encoding: "utf-8", stdio: "pipe",
-    });
-
-    if (res.status !== 0) return [];
+    if (!existsSync(this.worktreeBaseDir)) return [];
 
     const worktrees: WorktreeInfo[] = [];
-    const blocks = (res.stdout || "").split("\n\n");
+    try {
+      const entries = spawnSync("ls", [this.worktreeBaseDir], {
+        encoding: "utf-8", stdio: "pipe",
+      });
+      for (const taskId of (entries.stdout || "").trim().split("\n").filter(Boolean)) {
+        const wtPath = join(this.worktreeBaseDir, taskId);
+        if (!existsSync(wtPath)) continue;
 
-    for (const block of blocks) {
-      const lines = block.trim().split("\n");
-      const wtPath = lines.find(l => l.startsWith("worktree "))?.slice(9);
-      const branch = lines.find(l => l.startsWith("branch "))?.slice(7).replace("refs/heads/", "");
+        const branchRes = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd: wtPath, encoding: "utf-8", stdio: "pipe",
+        });
+        const branch = (branchRes.stdout || "").trim();
 
-      if (wtPath && branch && branch.startsWith("tasksmith/")) {
-        const taskId = wtPath.split("/").pop() || "";
-        worktrees.push({ taskId, branch, path: wtPath, baseBranch: this.config.baseBranch });
+        const repoRes = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+          cwd: wtPath, encoding: "utf-8", stdio: "pipe",
+        });
+        const repoPath = (repoRes.stdout || "").trim();
+
+        if (branch) {
+          worktrees.push({ taskId, branch, path: wtPath, baseBranch: this.config.baseBranch, repoPath });
+        }
       }
-    }
+    } catch { /* best effort */ }
 
     return worktrees;
   }
@@ -343,7 +365,7 @@ export class WorkerPool {
   private onTaskComplete: ((task: Task, worktreeResult: string | null) => void) | null = null;
 
   constructor(
-    workspace: string,
+    private workspace: string,
     config: Partial<PoolConfig>,
     private executor: TaskExecutor,
     private log: Logger,
@@ -357,15 +379,12 @@ export class WorkerPool {
       },
     };
 
-    // Initialize worktree manager if enabled and in a git repo
+    // Initialize worktree manager if enabled.
+    // Git repo validation is deferred to create() time using the task's
+    // actual project path, since the workspace itself may not be a git repo.
     if (this.config.worktree.enabled) {
-      const wm = new WorktreeManager(workspace, this.config.worktree, log);
-      if (wm.isGitRepo()) {
-        this.worktreeManager = wm;
-        log.info(`Worktree isolation enabled (strategy: ${this.config.worktree.strategy}, base: ${this.config.worktree.baseBranch})`);
-      } else {
-        log.warn("Worktree isolation enabled but workspace is not a git repo — disabled");
-      }
+      this.worktreeManager = new WorktreeManager(workspace, this.config.worktree, log);
+      log.info(`Worktree isolation enabled (strategy: ${this.config.worktree.strategy}, base: ${this.config.worktree.baseBranch})`);
     }
 
     log.info(`Worker pool: concurrency=${this.config.concurrency}`);
@@ -394,6 +413,18 @@ export class WorkerPool {
     }
   }
 
+  /** Resolve a task's project to its actual filesystem path (follows symlinks). */
+  private resolveProjectPath(task: Task): string | null {
+    if (!task.project) return null;
+    const symlink = join(this.workspace, "projects", task.project);
+    if (!existsSync(symlink)) return null;
+    try {
+      return realpathSync(symlink);
+    } catch {
+      return null;
+    }
+  }
+
   /** Start executing a task in a worker slot */
   private startWorker(task: Task): void {
     const useWorktree = this.worktreeManager &&
@@ -403,9 +434,14 @@ export class WorkerPool {
     let worktree: WorktreeInfo | null = null;
 
     if (useWorktree && this.worktreeManager) {
-      worktree = this.worktreeManager.create(task);
-      if (worktree) {
-        this.log.info(`[${task.id}] Isolated in worktree: ${worktree.branch}`);
+      const projectPath = this.resolveProjectPath(task);
+      if (projectPath) {
+        worktree = this.worktreeManager.create(task, projectPath);
+        if (worktree) {
+          this.log.info(`[${task.id}] Isolated in worktree: ${worktree.branch} (repo: ${projectPath})`);
+        }
+      } else {
+        this.log.warn(`[${task.id}] No project path resolved — running without worktree`);
       }
     }
 
