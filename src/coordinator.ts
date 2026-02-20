@@ -6,7 +6,7 @@
  */
 
 import { join, dirname } from "node:path";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, unlinkSync } from "node:fs";
 import yaml from "js-yaml";
 import chalk from "chalk";
 import { v4 as uuidv4 } from "uuid";
@@ -110,6 +110,17 @@ export class Coordinator {
 
   // ── Inbound Handler ────────────────────────────────────────────
 
+  /**
+   * Remove the original source file after handleInbound writes a normalized
+   * copy. Prevents scanInbox from also picking up the original, which would
+   * create a duplicate task.
+   */
+  private cleanupSourceFile(msg: InboundMessage): void {
+    if (msg.source === "file_drop" && msg.metadata?.filePath) {
+      try { unlinkSync(msg.metadata.filePath as string); } catch { /* already moved by scanInbox */ }
+    }
+  }
+
   private async handleInbound(msg: InboundMessage): Promise<void> {
     const content = msg.content.trim();
 
@@ -122,6 +133,7 @@ export class Coordinator {
           const task = this.engine.parseTask(taskYaml, msg.source);
           const taskFile = join(this.workspace, "tasks", "inbox", `${task.id}.yaml`);
           writeFileSync(taskFile, yaml.dump(task));
+          this.cleanupSourceFile(msg);
           console.log(`[coordinator] Queued JSON task ${task.id} from ${msg.source}`);
           return;
         }
@@ -135,6 +147,7 @@ export class Coordinator {
         const task = this.engine.parseTask(content, msg.source);
         const taskFile = join(this.workspace, "tasks", "inbox", `${task.id}.yaml`);
         writeFileSync(taskFile, yaml.dump(task));
+        this.cleanupSourceFile(msg);
         console.log(`[coordinator] Queued task ${task.id} from ${msg.source}`);
         return;
       }
@@ -144,6 +157,7 @@ export class Coordinator {
     const task = this.nlToTask(content, msg);
     const taskFile = join(this.workspace, "tasks", "inbox", `${task.id}.yaml`);
     writeFileSync(taskFile, yaml.dump(task));
+    this.cleanupSourceFile(msg);
     console.log(`[coordinator] Queued NL task ${task.id} from ${msg.source}:${msg.sender}`);
   }
 

@@ -177,15 +177,44 @@ export class FileDropProvider implements InboundCommsProvider {
   private inboxPath: string;
   private watcher: ReturnType<typeof watch> | null = null;
 
+  /**
+   * Tracks recently processed file paths to prevent duplicate processing.
+   * WSL2's inotify implementation fires multiple 'add' events for a single
+   * file write. Without deduplication, each event creates a separate task.
+   * Entries are cleared after DEDUP_WINDOW_MS to allow legitimate resubmissions.
+   */
+  private recentlyProcessed = new Map<string, number>();
+  private static readonly DEDUP_WINDOW_MS = 2000;
+
   constructor(_config: Record<string, unknown>, inboxPath: string) {
     this.inboxPath = inboxPath;
   }
 
   async start(callback: InboundCallback): Promise<void> {
-    this.watcher = watch(this.inboxPath, { ignoreInitial: false, awaitWriteFinish: { stabilityThreshold: 500 } });
+    // ignoreInitial: true — files already in the inbox at startup are handled
+    // by the engine's scanInbox interval, not by the file watcher. This prevents
+    // a race where both the watcher and scanInbox process the same file.
+    this.watcher = watch(this.inboxPath, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 500 } });
 
     this.watcher.on("add", async (filePath: string) => {
-      if (!filePath.endsWith(".yaml") && !filePath.endsWith(".yml")) return;
+      if (!filePath.endsWith(".yaml") && !filePath.endsWith(".yml") && !filePath.endsWith(".json")) return;
+
+      // Deduplicate: skip if this exact path was processed within the window.
+      // This guards against WSL2/inotify firing multiple events for one write.
+      const now = Date.now();
+      const lastSeen = this.recentlyProcessed.get(filePath);
+      if (lastSeen && now - lastSeen < FileDropProvider.DEDUP_WINDOW_MS) {
+        return;
+      }
+      this.recentlyProcessed.set(filePath, now);
+
+      // Prune stale entries periodically to prevent unbounded growth
+      if (this.recentlyProcessed.size > 100) {
+        for (const [path, ts] of this.recentlyProcessed) {
+          if (now - ts > FileDropProvider.DEDUP_WINDOW_MS) this.recentlyProcessed.delete(path);
+        }
+      }
+
       try {
         const content = readFileSync(filePath, "utf-8");
         await callback({

@@ -22,10 +22,21 @@ import type { PluginManager } from "./plugins.js";
 import { resolveTemplate, isTaskFile, parseTaskFile } from "./config.js";
 import type { SessionArchiver } from "./providers/memory/providers.js";
 
+/** Parsed fields from Claude Code's --output-format json response. */
+interface CCJsonResult {
+  result?: string;
+  duration_ms?: number;
+  num_turns?: number;
+  total_cost_usd?: number;
+  session_id?: string;
+  is_error?: boolean;
+}
+
 export class TaskEngine {
   private workspace: string;
   private config: Record<string, any>;
   private defaults: Record<string, any>;
+  private logLevel: string;
 
   readonly inbox: string;
   readonly active: string;
@@ -50,6 +61,7 @@ export class TaskEngine {
     this.workspace = workspace;
     this.config = config;
     this.defaults = config.taskDefaults || {};
+    this.logLevel = (config.system?.logLevel || "INFO").toUpperCase();
 
     this.inbox = join(workspace, "tasks", "inbox");
     this.active = join(workspace, "tasks", "active");
@@ -198,6 +210,53 @@ export class TaskEngine {
     }
   }
 
+  // ── CC Output Parsing & Logging ──────────────────────────────────
+
+  /**
+   * Parse the JSON blob returned by `claude --output-format json`,
+   * log a human-readable summary of cost/turns/duration/result,
+   * and optionally write the full raw output to a per-iteration log file
+   * when logLevel is DEBUG.
+   */
+  private logCCOutput(raw: string, task: Task, iteration: number): CCJsonResult | null {
+    let parsed: CCJsonResult | null = null;
+    try {
+      parsed = JSON.parse(raw) as CCJsonResult;
+    } catch {
+      // Not valid JSON (e.g. stderr mixed in) — nothing to extract
+      return null;
+    }
+
+    // Always log the summary line
+    const turns = parsed.num_turns ?? "?";
+    const cost = parsed.total_cost_usd != null ? `$${parsed.total_cost_usd.toFixed(4)}` : "?";
+    const dur = parsed.duration_ms != null ? `${(parsed.duration_ms / 1000).toFixed(1)}s` : "?";
+    console.log(`[engine] ${task.id} iter ${iteration}: turns=${turns} cost=${cost} duration=${dur}`);
+
+    // Log Claude's result text (truncated for console readability)
+    if (parsed.result) {
+      const preview = parsed.result.length > 300
+        ? parsed.result.slice(0, 300) + "..."
+        : parsed.result;
+      console.log(`[engine] ${task.id} iter ${iteration} result: ${preview}`);
+    }
+
+    // DEBUG: write full raw output to per-iteration log file
+    if (this.logLevel === "DEBUG") {
+      const logDir = join(this.workspace, "logs", task.id);
+      mkdirSync(logDir, { recursive: true });
+      const logFile = join(logDir, `iteration-${iteration}.json`);
+      try {
+        writeFileSync(logFile, raw);
+        console.log(`[engine] DEBUG: full output written to ${logFile}`);
+      } catch (e) {
+        console.warn(`[engine] DEBUG: failed to write log: ${e}`);
+      }
+    }
+
+    return parsed;
+  }
+
   // ── Permission List Builders ───────────────────────────────────────
 
   private buildAllowList(engineCfg: Record<string, any>, task: Task): string[] {
@@ -271,8 +330,16 @@ export class TaskEngine {
 
         const result = await this.invokeCC(prompt, task, cwdOverride);
 
+        // Parse and log CC output regardless of success/failure
+        const ccOutput = this.logCCOutput(
+          result.output || result.error || "",
+          task, i,
+        );
+
         if (!result.ok) {
           lastErr = result.error || "Unknown error";
+          // Use parsed result text if available (more informative than raw JSON)
+          if (ccOutput?.result) lastErr = ccOutput.result;
           console.warn(`[engine] ${task.id} iteration ${i} failed: ${lastErr.slice(0, 200)}`);
           if (i < maxIter) {
             await this.flushMemory(task, `Iteration ${i} error: ${lastErr.slice(0, 500)}`);
