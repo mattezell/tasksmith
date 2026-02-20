@@ -32,6 +32,81 @@ interface CCJsonResult {
   is_error?: boolean;
 }
 
+/** Rate limit detection result. */
+interface RateLimitInfo {
+  isRateLimited: boolean;
+  resetTime: Date | null;
+  sleepMs: number;
+}
+
+/**
+ * Detect rate limiting from Claude Code's JSON response.
+ * Rate limit responses have: is_error=true, total_cost_usd=0, num_turns=1,
+ * and result text matching "You've hit your limit · resets <time> (<tz>)".
+ */
+function detectRateLimit(parsed: CCJsonResult | null): RateLimitInfo {
+  const none: RateLimitInfo = { isRateLimited: false, resetTime: null, sleepMs: 0 };
+  if (!parsed || !parsed.is_error) return none;
+  if (!parsed.result || !parsed.result.includes("hit your limit")) return none;
+
+  // Parse reset time: "resets 6pm (America/Chicago)" or "resets 2:30am (America/Chicago)"
+  const match = parsed.result.match(/resets?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i);
+  if (!match) {
+    // Detected rate limit but couldn't parse time — use a conservative 15min wait
+    return { isRateLimited: true, resetTime: null, sleepMs: 15 * 60 * 1000 };
+  }
+
+  const [, timeStr, tz] = match;
+
+  try {
+    // Build a target date for today at the specified time
+    const now = new Date();
+
+    // Parse the time string (e.g. "6pm", "2:30am", "11pm")
+    const timeParts = timeStr.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+    if (!timeParts) {
+      return { isRateLimited: true, resetTime: null, sleepMs: 15 * 60 * 1000 };
+    }
+
+    let hours = parseInt(timeParts[1], 10);
+    const minutes = timeParts[2] ? parseInt(timeParts[2], 10) : 0;
+    const ampm = timeParts[3].toLowerCase();
+
+    if (ampm === "pm" && hours !== 12) hours += 12;
+    if (ampm === "am" && hours === 12) hours = 0;
+
+    // Create target time using Intl to handle timezone
+    // Get current time in the specified timezone
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(now);
+    const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value || "0", 10);
+
+    const nowInTz = new Date(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    const resetInTz = new Date(get("year"), get("month") - 1, get("day"), hours, minutes, 0);
+
+    // If reset time is in the past (already passed today), assume tomorrow
+    if (resetInTz <= nowInTz) {
+      resetInTz.setDate(resetInTz.getDate() + 1);
+    }
+
+    const sleepMs = resetInTz.getTime() - nowInTz.getTime();
+    // Add 60s buffer to avoid hitting the limit again immediately
+    const bufferedSleepMs = sleepMs + 60_000;
+    // Cap at 12 hours to avoid runaway waits from parsing errors
+    const cappedSleepMs = Math.min(bufferedSleepMs, 12 * 60 * 60 * 1000);
+
+    const resetTime = new Date(now.getTime() + cappedSleepMs);
+    return { isRateLimited: true, resetTime, sleepMs: cappedSleepMs };
+  } catch {
+    return { isRateLimited: true, resetTime: null, sleepMs: 15 * 60 * 1000 };
+  }
+}
+
 export class TaskEngine {
   private workspace: string;
   private config: Record<string, any>;
@@ -367,6 +442,20 @@ export class TaskEngine {
           result.output || result.error || "",
           task, i,
         );
+
+        // Rate limit detection: pause and retry without counting the iteration
+        const rateLimit = detectRateLimit(ccOutput);
+        if (rateLimit.isRateLimited) {
+          const resumeStr = rateLimit.resetTime
+            ? rateLimit.resetTime.toLocaleTimeString()
+            : `${Math.round(rateLimit.sleepMs / 60000)}min`;
+          console.warn(`[engine] ${task.id} rate limited — pausing until ${resumeStr}`);
+          await this.flushMemory(task, `Rate limited at iteration ${i}. Pausing until ${resumeStr}`);
+          await sleep(rateLimit.sleepMs / 1000);
+          console.log(`[engine] ${task.id} resuming after rate limit pause`);
+          i--; // Retry the same iteration
+          continue;
+        }
 
         if (!result.ok) {
           lastErr = result.error || "Unknown error";
