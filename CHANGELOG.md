@@ -5,6 +5,32 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-02-20
+
+### Added
+- **Claude Code output visibility** — per-iteration summary logging (turns, cost, duration) extracted from Claude's `--output-format json` response. Full JSON output saved to `~/.tasksmith/logs/{task-id}/iteration-{n}.json` when `system.logLevel: DEBUG`.
+- **`CCJsonResult` interface** — typed parsing of Claude Code's JSON output (`result`, `duration_ms`, `num_turns`, `total_cost_usd`, `session_id`, `is_error`).
+- **`local` worktree strategy** — purely local isolation with no push, no merge, no cleanup. Worktree and branch stay on disk for manual review. Useful for reviewing AI changes before committing to anything.
+- **Rate limit detection with auto-pause** — detects "hit your limit" in Claude Code's response, parses the reset time (with timezone support), sleeps until reset + 60s buffer, then retries the same iteration. Falls back to 15-minute pause if time can't be parsed. Capped at 12 hours max sleep.
+- **Project-aware worktrees** — `WorktreeManager.create()` resolves project symlinks (e.g., `~/.tasksmith/projects/my-api` → `/home/user/code/my-api`) via `realpathSync` so worktrees are created in the correct git repository, not the TaskSmith workspace.
+
+### Fixed
+- **Duplicate task creation on WSL2** — three-part fix:
+  - `FileDropProvider` dedup map with 2-second window to handle WSL2 inotify double-fire
+  - `ignoreInitial: true` on chokidar to avoid race with `scanInbox` at startup
+  - `cleanupSourceFile()` removes original file_drop source after `handleInbound` writes a normalized copy
+- **Concurrent execution blocked by `spawnSync`** — replaced `spawnSync` with async `spawn` in `invokeCC()`. The synchronous call was freezing the entire Node.js event loop, preventing the scan interval, file watchers, and pool dequeuing from running during Claude Code execution. True parallel task execution now works.
+- **Infinite watcher loop in `handleInbound`** — `handleInbound` was writing normalized task files back to `inbox/`, triggering the file watcher, which called `handleInbound` again. Fixed by writing directly to `active/` and calling `pool.submit()`, completely bypassing the inbox.
+- **Nested session detection** — Claude Code refused to launch because the `CLAUDECODE` environment variable was inherited from the parent process. Fixed by setting `CLAUDECODE: undefined` in the spawn environment.
+- **Worktrees silently disabled** — `isGitRepo()` was checking `~/.tasksmith` (not a git repo) instead of the actual project directory. Refactored to take a `cwd` parameter and run the safety check per-project during `WorktreeManager.create()`.
+
+### Changed
+- `engine.ts` — `invokeCC()` is now fully async using `child_process.spawn` with promise-based stdout/stderr collection. Added `logCCOutput()` for per-iteration visibility and `detectRateLimit()` for pause-and-resume behavior.
+- `pool.ts` — `WorktreeManager` refactored: `isGitRepo(cwd)` takes a path param, `create(task, projectPath)` takes resolved project path, `WorktreeInfo` gains `repoPath` field. Added `resolveProjectPath()` on `WorkerPool` that follows symlinks via `realpathSync`. Pool constructor no longer gates on `isGitRepo` upfront.
+- `coordinator.ts` — new `submitTask()` method writes directly to `active/` and calls `pool.submit()`. `handleInbound()` uses `submitTask()` instead of writing to inbox. New `cleanupSourceFile()` method.
+- `providers/comms/providers.ts` — `FileDropProvider` gains `recentlyProcessed` dedup map and `DEDUP_WINDOW_MS` constant. Accepts `.json` file extension.
+- Version bumped to 0.8.2.
+
 ## [0.8.1] - 2026-02-19
 
 ### Added
@@ -292,6 +318,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration management with YAML and deep merge
 - Workspace scaffolding
 
+[0.8.2]: https://github.com/mattezell/tasksmith/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/mattezell/tasksmith/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/mattezell/tasksmith/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/mattezell/tasksmith/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/mattezell/tasksmith/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mattezell/tasksmith/compare/v0.6.0...v0.7.0

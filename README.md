@@ -100,7 +100,7 @@ engine:
   concurrency: 3    # max parallel tasks (default: 1)
 ```
 
-Tasks are priority-queued (urgent → high → normal → low). The pool dequeues up to `concurrency` tasks and runs them in parallel. When one finishes, the next in queue starts automatically. CLI: `tasksmith workers` shows pool config and active worktrees.
+Tasks are priority-queued (urgent → high → normal → low). The pool dequeues up to `concurrency` tasks and runs them in parallel. When one finishes, the next in queue starts automatically. Execution is fully async — the Node.js event loop stays free for inbox scanning, file watching, and pool management while Claude Code runs. CLI: `tasksmith workers` shows pool config and active worktrees.
 
 ### Git Worktree Isolation
 
@@ -124,6 +124,30 @@ engine:
 | **`local`** | Purely local — no push, no merge. Worktree and branch stay on disk for manual review |
 
 On failure, the worktree is discarded (except `local`, which always preserves). No damage to main. Override per-task with `params.worktree_strategy` or disable with `params.worktree: false`.
+
+**Project-aware:** Worktrees are created in the actual git repository, not the TaskSmith workspace. Project symlinks (e.g., `~/.tasksmith/projects/my-api` → `/home/user/code/my-api`) are resolved automatically via `realpathSync`.
+
+### Rate Limit Handling
+
+TaskSmith detects Anthropic API rate limits automatically and pauses until the limit resets:
+
+- Detects "hit your limit" in Claude Code's response
+- Parses the reset time (with timezone support)
+- Sleeps until reset + 60-second buffer, then retries the same iteration
+- Falls back to a 15-minute pause if the time can't be parsed
+- Maximum sleep capped at 12 hours
+
+No configuration needed — this is always active. Rate-limited iterations are not counted against `maxIterations`, so no work is lost.
+
+### Claude Code Output Visibility
+
+Each Claude Code iteration logs a summary line:
+
+```
+[engine] task-123 iteration 1 — 12 turns, $0.42, 45.2s
+```
+
+For deeper debugging, set `system.logLevel: DEBUG` in your config to save the full Claude Code JSON response per iteration to `~/.tasksmith/logs/{task-id}/iteration-{n}.json`.
 
 ### Sandbox Isolation
 
@@ -822,18 +846,18 @@ This means you can run the engine in `supervised` mode but submit individual tas
 ```
 src/
 ├── config.ts             427 lines   Workspace resolution, config layering, template chain
-├── engine.ts             454 lines   Task lifecycle, Ralph Loop, CC invocation, permission modes
+├── engine.ts             666 lines   Task lifecycle, Ralph Loop, async CC invocation, rate limits
 ├── plugins.ts            583 lines   Plugin loader, lifecycle hooks, scaffolding
 ├── cli.ts                572 lines   Commander CLI (18 commands)
-├── pool.ts               484 lines   Worker pool, concurrency, git worktree isolation
+├── pool.ts               528 lines   Worker pool, concurrency, project-aware worktree isolation
 ├── onboarding.ts         443 lines   9-step interactive setup wizard
-├── coordinator.ts        367 lines   Wires providers + engine + pool + plugins
+├── coordinator.ts        389 lines   Wires providers + engine + pool + plugins
 ├── scheduler.ts          237 lines   Cron-based task scheduling
 ├── types.ts              199 lines   Interfaces, provider contracts, permission types
 ├── api.ts                174 lines   REST API server
 ├── index.ts                7 lines   Package exports
 ├── providers/
-│   ├── comms/            366 lines   6 outbound + 4 inbound providers
+│   ├── comms/            395 lines   6 outbound + 4 inbound providers
 │   └── memory/           241 lines   Markdown, JSONL, compressed archives
 └── plugins/bundled/
     ├── index.ts           86 lines   Lazy-load registry
@@ -916,7 +940,7 @@ npm link           # makes `tasksmith` available globally
 ```
 
 ```bash
-tasksmith --version    # 0.8.0
+tasksmith --version    # 0.8.2
 tasksmith doctor       # check prerequisites
 ```
 

@@ -17,6 +17,7 @@
 | 0.7.2 | ✅ Done | CLI --param flag, JSON inbound, NL param extraction, green field projects, security docs |
 | **0.8.0** | ✅ Done | Permission modes (supervised/autonomous/yolo), `EngineConfig`, CLI `--mode` flag |
 | **0.8.1** | ✅ Done | OS-level sandbox isolation, `addCommandWrapper` plugin hook |
+| **0.8.2** | ✅ Done | Async concurrent execution, project-aware worktrees, rate limit auto-pause, CC output visibility, WSL2 bug fixes |
 
 ---
 
@@ -41,7 +42,7 @@ Chain tasks with explicit dependencies. `task-b` starts only after `task-a` comp
 TaskSmith exposes itself as an MCP server — other agents can submit tasks, query status, and read memory. "Agents helping agents."
 
 **Cost tracking**
-Track token usage and estimated cost per task, per project, per template. `tasksmith metrics --cost`. Supports Anthropic API pricing table.
+Per-iteration cost is now logged from Claude Code's JSON output (v0.8.2). Remaining: aggregate cost per task, per project, per template. `tasksmith metrics --cost`. Supports Anthropic API pricing table.
 
 **Smart model routing**
 Route tasks to models based on complexity signals: prompt length, template type, retry count. Cheap model first, escalate on failure.
