@@ -102,6 +102,11 @@ export class WorktreeManager {
 
   /**
    * Create an isolated worktree for a task.
+   * Handles three scenarios:
+   *   1. Existing worktree directory (resubmit after crash) — reuse as-is
+   *   2. Existing branch but no worktree (orphaned branch) — attach new worktree
+   *   3. Neither exists — create fresh branch + worktree from base
+   *
    * @param task - The task to isolate
    * @param projectPath - The actual git repo path (resolved from project symlink)
    */
@@ -117,9 +122,50 @@ export class WorktreeManager {
     const wtPath = join(this.worktreeBaseDir, task.id);
     const base = this.config.baseBranch;
 
-    this.log.info(`Creating worktree: ${branch} (from ${base}) in ${projectPath}`);
+    // Prune stale worktree metadata (e.g. worktree dir deleted but git still tracks it)
+    spawnSync("git", ["worktree", "prune"], {
+      cwd: projectPath, encoding: "utf-8", stdio: "pipe",
+    });
 
-    // Create a new branch from base and attach a worktree
+    // Case 1: Worktree directory already exists and is a valid git worktree.
+    // This happens when a task is resubmitted after a crash/restart — the
+    // worktree branch may already have commits from before the interruption.
+    if (existsSync(wtPath) && this.isGitRepo(wtPath)) {
+      this.log.info(`[${task.id}] Reusing existing worktree: ${wtPath} (branch: ${branch})`);
+      return { taskId: task.id, branch, path: wtPath, baseBranch: base, repoPath: projectPath };
+    }
+
+    // Check if the branch already exists (orphaned from a previous worktree removal)
+    const branchCheck = spawnSync("git", ["rev-parse", "--verify", branch], {
+      cwd: projectPath, encoding: "utf-8", stdio: "pipe",
+    });
+    const branchExists = branchCheck.status === 0;
+
+    // Clean up stale worktree path if it exists but isn't a valid git repo
+    if (existsSync(wtPath)) {
+      try { rmSync(wtPath, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+
+    if (branchExists) {
+      // Case 2: Branch exists but no valid worktree — attach a new worktree
+      // to the existing branch. Preserves any commits on the branch.
+      this.log.info(`[${task.id}] Reusing existing branch: ${branch} (creating worktree at ${wtPath})`);
+
+      const res = spawnSync("git", ["worktree", "add", wtPath, branch], {
+        cwd: projectPath, encoding: "utf-8", stdio: "pipe",
+      });
+
+      if (res.status !== 0) {
+        this.log.error(`[${task.id}] Worktree reuse failed: ${(res.stderr || res.stdout || "").trim()}`);
+        return null;
+      }
+
+      return { taskId: task.id, branch, path: wtPath, baseBranch: base, repoPath: projectPath };
+    }
+
+    // Case 3: Fresh creation — new branch from base
+    this.log.info(`[${task.id}] Creating worktree: ${branch} (from ${base}) in ${projectPath}`);
+
     const res = spawnSync("git", [
       "worktree", "add",
       "-b", branch,
@@ -132,7 +178,7 @@ export class WorktreeManager {
     });
 
     if (res.status !== 0) {
-      this.log.error(`Worktree create failed: ${(res.stderr || res.stdout || "").trim()}`);
+      this.log.error(`[${task.id}] Worktree create failed: ${(res.stderr || res.stdout || "").trim()}`);
       return null;
     }
 
@@ -149,26 +195,42 @@ export class WorktreeManager {
       return null;
     }
 
-    // Check if there are any changes to commit
+    // Auto-commit: if Claude left uncommitted changes (common in yolo mode),
+    // stage and commit them before attempting merge/PR.
     const status = spawnSync("git", ["status", "--porcelain"], {
       cwd: wt.path, encoding: "utf-8", stdio: "pipe",
     });
+    const hasUncommitted = (status.stdout || "").trim().length > 0;
 
-    const hasChanges = (status.stdout || "").trim().length > 0;
+    if (hasUncommitted) {
+      this.log.info(`[${wt.taskId}] Auto-committing uncommitted changes in worktree`);
+      spawnSync("git", ["add", "-A"], { cwd: wt.path, encoding: "utf-8", stdio: "pipe" });
 
-    if (!hasChanges) {
-      this.log.info("No changes in worktree — nothing to merge");
+      const commitMsg = `[tasksmith] ${task.template}: ${task.prompt.slice(0, 72)}`;
+      const commitRes = spawnSync("git", ["commit", "-m", commitMsg], {
+        cwd: wt.path, encoding: "utf-8", stdio: "pipe",
+      });
+
+      if (commitRes.status !== 0) {
+        this.log.warn(`[${wt.taskId}] Auto-commit failed: ${(commitRes.stderr || "").trim()}`);
+      }
+    }
+
+    // Check if the worktree branch has commits ahead of the base branch.
+    // This catches both cases: Claude committed its own work (status clean but
+    // commits exist), and auto-commit above added a commit.
+    const ahead = spawnSync("git", ["rev-list", "--count", `${wt.baseBranch}..HEAD`], {
+      cwd: wt.path, encoding: "utf-8", stdio: "pipe",
+    });
+    const commitsAhead = parseInt((ahead.stdout || "0").trim(), 10);
+
+    if (commitsAhead === 0) {
+      this.log.info(`[${wt.taskId}] No commits ahead of ${wt.baseBranch} — nothing to merge`);
       if (this.config.cleanupOnSuccess) this.remove(wt);
       return null;
     }
 
-    // Stage and commit any uncommitted changes
-    spawnSync("git", ["add", "-A"], { cwd: wt.path, encoding: "utf-8", stdio: "pipe" });
-
-    const commitMsg = `[tasksmith] ${task.template}: ${task.prompt.slice(0, 72)}`;
-    spawnSync("git", ["commit", "-m", commitMsg], {
-      cwd: wt.path, encoding: "utf-8", stdio: "pipe",
-    });
+    this.log.info(`[${wt.taskId}] ${commitsAhead} commit(s) ahead of ${wt.baseBranch} — proceeding with ${strategy} strategy`);
 
     let result: string | null = null;
 
