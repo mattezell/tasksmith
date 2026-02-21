@@ -3,12 +3,15 @@
 /**
  * TaskSmith CLI
  *
- * tasksmith run         Start the engine
- * tasksmith submit      Submit a task
- * tasksmith status      System status
- * tasksmith setup       Onboarding wizard
- * tasksmith doctor      Diagnose issues
- * tasksmith memory      Browse/search memory
+ * tasksmith run                Start the engine
+ * tasksmith submit             Submit a task
+ * tasksmith status             System status
+ * tasksmith setup              Onboarding wizard
+ * tasksmith doctor             Diagnose issues
+ * tasksmith memory             Browse/search memory
+ * tasksmith workers            Show pool config & worktree status
+ * tasksmith workers --cleanup  Remove stale worktrees
+ * tasksmith workers --dry-run  Preview what --cleanup would remove
  */
 
 import { Command } from "commander";
@@ -476,9 +479,156 @@ program
 program
   .command("workers")
   .description("Show worker pool and worktree configuration")
-  .action(async () => {
+  .option("--cleanup", "Remove stale worktrees for completed/failed/orphaned tasks")
+  .option("--dry-run", "Show what --cleanup would remove without actually removing")
+  .action(async (opts) => {
     const ws = resolveWorkspace(program.opts().dir);
     const config = loadConfig(ws);
+
+    // ── Cleanup mode ──────────────────────────────────────────────
+    if (opts.cleanup || opts.dryRun) {
+      const { spawnSync: ss } = await import("node:child_process");
+      const wtBaseDir = join(ws, "worktrees");
+      const activeDir = join(ws, "tasks", "active");
+      const dryRun = opts.dryRun && !opts.cleanup;
+
+      if (!existsSync(wtBaseDir)) {
+        console.log(chalk.dim("\n  No worktree directory found. Nothing to clean up.\n"));
+        return;
+      }
+
+      // Get active task IDs (tasks currently being executed)
+      const activeTasks = new Set(
+        existsSync(activeDir)
+          ? readdirSync(activeDir).filter(f => isTaskFile(f)).map(f => f.replace(/\.(yaml|yml|json)$/, ""))
+          : []
+      );
+
+      // Scan worktree directory for task worktrees
+      const entries = readdirSync(wtBaseDir).filter(e =>
+        existsSync(join(wtBaseDir, e)) && e.startsWith("task-")
+      );
+
+      if (entries.length === 0) {
+        console.log(chalk.green("\n  No worktrees found. Clean.\n"));
+        return;
+      }
+
+      interface StaleWorktree {
+        taskId: string;
+        path: string;
+        branch: string;
+        repoPath: string;
+        reason: string;
+      }
+
+      const stale: StaleWorktree[] = [];
+      const active: string[] = [];
+
+      for (const taskId of entries) {
+        const wtPath = join(wtBaseDir, taskId);
+
+        if (activeTasks.has(taskId)) {
+          active.push(taskId);
+          continue;
+        }
+
+        // Determine reason: completed, failed, or orphaned (no task file at all)
+        let reason = "orphaned";
+        if (existsSync(join(ws, "tasks", "completed", `${taskId}.yaml`))) reason = "completed";
+        else if (existsSync(join(ws, "tasks", "failed", `${taskId}.yaml`))) reason = "failed";
+
+        // Get branch name and repo path from the worktree
+        const branchRes = ss("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd: wtPath, encoding: "utf-8", stdio: "pipe",
+        });
+        const branch = branchRes.status === 0 ? (branchRes.stdout || "").trim() : "unknown";
+
+        // Get the main repo path (worktree's parent repo)
+        const repoRes = ss("git", ["config", "--get", "remote.origin.url"], {
+          cwd: wtPath, encoding: "utf-8", stdio: "pipe",
+        });
+        // For repo path, find the actual git dir's commondir (points back to main repo)
+        const commonRes = ss("git", ["rev-parse", "--git-common-dir"], {
+          cwd: wtPath, encoding: "utf-8", stdio: "pipe",
+        });
+        let repoPath = "";
+        if (commonRes.status === 0) {
+          // --git-common-dir returns something like /path/to/repo/.git
+          const gitDir = (commonRes.stdout || "").trim();
+          repoPath = gitDir.endsWith("/.git") ? gitDir.slice(0, -5) : gitDir;
+        }
+
+        stale.push({ taskId, path: wtPath, branch, repoPath, reason });
+      }
+
+      // Report
+      console.log(chalk.bold(`\n  Worktree Cleanup${dryRun ? chalk.yellow(" (dry run)") : ""}\n`));
+
+      if (active.length > 0) {
+        console.log(`    ${chalk.green("Active")} (skipping): ${active.length}`);
+        for (const id of active) {
+          console.log(`      ${chalk.dim("→")} ${id}`);
+        }
+      }
+
+      if (stale.length === 0) {
+        console.log(chalk.green("    No stale worktrees found.\n"));
+        return;
+      }
+
+      console.log(`    ${chalk.yellow("Stale")} (to remove): ${stale.length}\n`);
+      for (const s of stale) {
+        const reasonColor = s.reason === "completed" ? chalk.green : s.reason === "failed" ? chalk.red : chalk.yellow;
+        console.log(`      ${reasonColor(s.reason.padEnd(10))} ${s.taskId}`);
+        console.log(`      ${chalk.dim(`branch: ${s.branch}`)}`);
+        if (s.repoPath) console.log(`      ${chalk.dim(`repo:   ${s.repoPath}`)}`);
+      }
+
+      if (dryRun) {
+        console.log(chalk.dim(`\n    Run ${chalk.bold("tasksmith workers --cleanup")} to remove these.\n`));
+        return;
+      }
+
+      // Perform cleanup
+      console.log();
+      let removed = 0;
+      let failed = 0;
+
+      for (const s of stale) {
+        try {
+          // Remove worktree via git (from the parent repo)
+          if (s.repoPath && existsSync(s.repoPath)) {
+            ss("git", ["worktree", "remove", s.path, "--force"], {
+              cwd: s.repoPath, encoding: "utf-8", stdio: "pipe",
+            });
+            // Delete the branch
+            if (s.branch && s.branch !== "unknown") {
+              ss("git", ["branch", "-D", s.branch], {
+                cwd: s.repoPath, encoding: "utf-8", stdio: "pipe",
+              });
+            }
+          }
+
+          // Fallback: if worktree dir still exists, remove it directly
+          if (existsSync(s.path)) {
+            const { rmSync: rm } = await import("node:fs");
+            rm(s.path, { recursive: true, force: true });
+          }
+
+          console.log(`    ${chalk.green("✓")} Removed ${s.taskId} (${s.branch})`);
+          removed++;
+        } catch (e: any) {
+          console.log(`    ${chalk.red("✗")} Failed to remove ${s.taskId}: ${e.message}`);
+          failed++;
+        }
+      }
+
+      console.log(`\n    ${chalk.green(`${removed} removed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ""}\n`);
+      return;
+    }
+
+    // ── Info mode (default) ───────────────────────────────────────
     const engine = (config as any).engine || {};
     const wt = engine.worktree || {};
 
@@ -500,18 +650,27 @@ program
       console.log(`\n    Git repo:      ${gitOk ? chalk.green("yes") : chalk.red("no")}`);
       console.log(`    gh CLI:        ${ghOk ? chalk.green("available") : chalk.yellow("not found (needed for PR strategy)")}`);
 
-      if (gitOk) {
-        // List active TaskSmith worktrees
-        const res = spawnSync("git", ["worktree", "list", "--porcelain"], { cwd: ws, encoding: "utf-8", stdio: "pipe" });
-        if (res.status === 0) {
-          const tsWorktrees = (res.stdout || "").split("\n\n")
-            .filter(block => block.includes("tasksmith/"));
-          if (tsWorktrees.length > 0) {
-            console.log(chalk.bold(`\n    Active Worktrees (${tsWorktrees.length}):`));
-            for (const block of tsWorktrees) {
-              const branch = block.match(/branch refs\/heads\/(.+)/)?.[1] || "?";
-              console.log(`      ${chalk.dim("→")} ${branch}`);
-            }
+      // List worktrees from the worktree base directory
+      const wtBaseDir = join(ws, "worktrees");
+      if (existsSync(wtBaseDir)) {
+        const wtEntries = readdirSync(wtBaseDir).filter(e => e.startsWith("task-"));
+        if (wtEntries.length > 0) {
+          console.log(chalk.bold(`\n    Worktrees on Disk (${wtEntries.length}):`));
+          const activeDir = join(ws, "tasks", "active");
+          const activeTasks = new Set(
+            existsSync(activeDir)
+              ? readdirSync(activeDir).filter(f => isTaskFile(f)).map(f => f.replace(/\.(yaml|yml|json)$/, ""))
+              : []
+          );
+          for (const taskId of wtEntries) {
+            const isActive = activeTasks.has(taskId);
+            const icon = isActive ? chalk.green("●") : chalk.yellow("○");
+            const label = isActive ? "active" : "stale";
+            console.log(`      ${icon} ${taskId} ${chalk.dim(`(${label})`)}`);
+          }
+          const staleCount = wtEntries.filter(id => !activeTasks.has(id)).length;
+          if (staleCount > 0) {
+            console.log(chalk.dim(`\n    ${staleCount} stale — run ${chalk.bold("tasksmith workers --cleanup")} to remove`));
           }
         }
       }

@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.3] - 2026-02-21
 
+### Added
+- **Stale worktree cleanup CLI** — `tasksmith workers --cleanup` scans the worktree directory, identifies worktrees for completed/failed/orphaned tasks, and removes them along with their branches. Cross-references active task directory to protect in-progress work. `tasksmith workers --dry-run` previews what would be removed. The default `tasksmith workers` display now shows worktrees on disk with active/stale indicators.
+
 ### Fixed
 - **Auto-commit before merge** — the worktree finalize step now auto-commits any uncommitted changes Claude left behind (common in yolo/autonomous mode), then checks for commits ahead of the base branch using `git rev-list --count`. Previously, if Claude committed its own work, `git status --porcelain` showed clean and finalize bailed out with "nothing to merge" — the committed work was never merged. If Claude didn't commit, the auto-commit ran but its result was never checked (could fail silently). Both cases are now handled correctly.
 - **Worktree reuse on restart** — when a task is resubmitted after a crash/restart, worktree creation no longer fails with "branch already exists". The `WorktreeManager.create()` method now handles three scenarios: (1) existing worktree directory — reuse as-is, preserving any commits from before the interruption; (2) existing branch with no worktree (orphaned) — attach a new worktree to the existing branch; (3) neither exists — create fresh (previous behavior). Runs `git worktree prune` before creation to clean stale metadata.
 
 ### Changed
 - `pool.ts` — `WorktreeManager.create()` refactored with three-case branch/worktree detection. `finalize()` uses `git rev-list --count` instead of `git status --porcelain` to determine if there's work to merge. Auto-commit result is now checked and logged on failure. All log messages include task ID for traceability.
+- `cli.ts` — `workers` command gains `--cleanup` and `--dry-run` flags. Default info display now shows worktrees on disk with active/stale status instead of relying on `git worktree list` from the workspace (which may not be a git repo).
 
 ## [0.8.2] - 2026-02-20
 

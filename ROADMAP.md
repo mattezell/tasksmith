@@ -18,7 +18,7 @@
 | **0.8.0** | ✅ Done | Permission modes (supervised/autonomous/yolo), `EngineConfig`, CLI `--mode` flag |
 | **0.8.1** | ✅ Done | OS-level sandbox isolation, `addCommandWrapper` plugin hook |
 | **0.8.2** | ✅ Done | Async concurrent execution, project-aware worktrees, rate limit auto-pause, CC output visibility, WSL2 bug fixes |
-| **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart |
+| **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart, stale worktree cleanup CLI |
 
 ---
 
@@ -90,7 +90,7 @@ Collected during the v0.8.2 development session. These are concrete, scoped item
 ### Worktree Resilience
 
 - ~~**Reuse existing worktrees on restart**~~ — ✅ Done in v0.8.3
-- **Stale worktree cleanup CLI** — `tasksmith workers --cleanup` to prune worktrees for tasks that are no longer active (e.g., completed, failed, or orphaned by a crash).
+- ~~**Stale worktree cleanup CLI**~~ — ✅ Done in v0.8.3
 
 ### Multi-Instance / Multi-Account
 
