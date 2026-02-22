@@ -20,6 +20,7 @@
 | **0.8.2** | ✅ Done | Async concurrent execution, project-aware worktrees, rate limit auto-pause, CC output visibility, WSL2 bug fixes |
 | **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart, stale worktree cleanup CLI |
 | **0.8.4** | ✅ Done | Input sanitization, MCP server mode, smart model routing, task DAG |
+| **0.8.5** | ✅ Done | Validation worktree targeting, sanitizer local trust bypass, `medium` priority |
 
 ---
 
@@ -103,9 +104,74 @@ Collected during the v0.8.2 development session. These are concrete, scoped item
 ### Engine Improvements
 
 - ~~**Auto-commit before merge**~~ — ✅ Done in v0.8.3
+- ~~**Validation worktree targeting**~~ — ✅ Done in v0.8.5. Validation commands with absolute `cd` paths now rewrite to the worktree path so engine validates Claude's actual changes.
+- ~~**Sanitizer local trust bypass**~~ — ✅ Done in v0.8.5. Local sources (file_drop, CLI) bypass shell metacharacter stripping. Prevents `&&` from being stripped from validation commands.
 - **Worktree-aware execution after branch failure** — Currently if worktree creation fails, the task runs in the project directory directly (no isolation). Should either retry with a unique branch suffix or clearly warn that isolation is lost.
 - **Graceful iteration resume** — Track iteration progress in the task YAML so restarted tasks can resume from the last completed iteration instead of starting over.
 - **Per-task cost aggregation** — Sum `total_cost_usd` across all iterations for a task and write it to the completed task YAML. Feeds into the v0.9.0 cost tracking feature.
+- **Resume pending tasks on restart** — Tasks already in `active/` with `status: pending` should be picked up when the engine restarts, not orphaned.
+
+### Observability & Human-Readable Logging
+
+Collected during the CCPort Round 2 campaign (v0.8.4). Multiple runs burned significant tokens and API credits due to infrastructure failures (wrong validation target, corrupted commands, missing dependencies) that were invisible in the console output. The operator had to manually inspect task YAML files, grep logs, and cross-reference timestamps to diagnose issues that should have been immediately obvious.
+
+**Problem statement:** The current logging is agent-centric (truncated Claude output, pass/fail booleans) rather than operator-centric. An operator watching the console cannot distinguish "Claude wrote bad code" from "the validation harness is broken" without digging into files. This wastes tokens on doomed iterations and delays diagnosis.
+
+**Design: Three-layer observability**
+
+1. **Console output (real-time, operator-facing)**
+   - **Validation failure detail**: When validation fails, log the actual command that was executed, its exit code, and the first 5-10 lines of stderr. Current behavior only logs "validation failed" with no context. The operator should immediately see `"CHROMIUM_BIN not set"` or `"cd: too many arguments"` rather than having to reconstruct it.
+   - **Failure classification**: Categorize each failure and tag the log line:
+     - `[INFRA]` — validation command itself is broken (non-zero exit before any test runs, missing binary, bad syntax)
+     - `[TEST]` — tests actually ran but some failed (exit code from test runner, with fail count)
+     - `[BUILD]` — compilation/build step failed (distinguishable from test failures)
+     - `[TIMEOUT]` — validation exceeded time limit
+     - `[RATE-LIMIT]` — Claude hit API rate limit (already detected, but surface prominently)
+   - **Contradiction detection**: When Claude's output claims "all tests pass" but engine validation fails, flag this explicitly: `[WARN] Agent reported success but engine validation failed — likely infrastructure issue, not bad code`. This is the single most expensive failure mode we hit — it burned 8 iterations per task.
+   - **Periodic progress dashboard**: Every N minutes (configurable, default 5), print a compact status block:
+     ```
+     [status] 14:30 | Active: 3/3 | Completed: 8 | Failed: 2 | Queued: 4 | Cost: $18.42
+       task-abc (iter 2/8, opus, $3.20)  task-def (iter 1/6, sonnet, $0.45)  task-ghi (iter 4/8, opus, $7.80)
+     ```
+   - **Warning escalation**: Critical warnings should be visually distinct (not just another `[pool]` line):
+     - Missing project path → `[CRITICAL] No project path for "foglifter-client" — running WITHOUT worktree isolation`
+     - Sanitizer rewrites → `[WARN] Sanitizer modified validation command — verify intent`
+     - Worktree creation failure → `[CRITICAL] Worktree creation failed — falling back to main repo (no isolation)`
+
+2. **Structured task log (per-task, machine-readable)**
+   - Write a JSON log file per task: `~/.tasksmith/logs/task-{id}.jsonl`
+   - Each line is a timestamped event: iteration start/end, validation command + full output, cost, model used, failure classification, Claude's result summary
+   - Enables post-mortem analysis without parsing console output
+   - Survives engine restarts (append-only)
+   - Schema:
+     ```jsonl
+     {"ts":"...","event":"iter_start","task":"abc","iter":1,"model":"opus"}
+     {"ts":"...","event":"cc_complete","task":"abc","iter":1,"turns":33,"cost":1.07,"result_summary":"..."}
+     {"ts":"...","event":"validation","task":"abc","iter":1,"cmd":"...","exit_code":1,"stderr":"No binary for ChromiumHeadless...","classification":"INFRA"}
+     {"ts":"...","event":"iter_end","task":"abc","iter":1,"passed":false,"failure_class":"INFRA"}
+     ```
+
+3. **Task YAML enrichment (post-mortem, human-readable)**
+   - On task completion/failure, write a `diagnostics` section to the task YAML:
+     ```yaml
+     diagnostics:
+       total_cost_usd: 12.45
+       iterations_used: 4
+       failure_class: INFRA  # or TEST, BUILD, TIMEOUT, RATE_LIMIT, NONE
+       last_validation_cmd: "cd /path/to/worktree && ng build && ng test..."
+       last_validation_exit_code: 1
+       last_validation_stderr_head: "No binary for ChromiumHeadless browser..."
+       agent_claimed_success: true
+       contradiction_detected: true
+     ```
+   - This is the data the operator greps when reviewing a batch of completed/failed tasks
+
+**Implementation priority (ordered by "would have saved us the most pain"):**
+1. Validation failure detail in console — highest ROI, would have caught every issue in <1 minute
+2. Failure classification + contradiction detection — would have prevented 8-iteration burn loops
+3. Periodic progress dashboard — eliminates manual `ls active/ | wc -l` polling
+4. Structured task log (JSONL) — enables `tasksmith logs --task abc` CLI for post-mortem
+5. Task YAML diagnostics — enriches the artifact for batch review
 
 ---
 
