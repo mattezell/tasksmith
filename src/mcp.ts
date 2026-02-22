@@ -37,6 +37,7 @@ import { sanitizeTask } from "./sanitize.js";
 import type { TaskSmithConfig } from "./types.js";
 import { MarkdownMemoryProvider, JSONLMemoryProvider } from "./providers/memory/providers.js";
 import type { MemoryProvider } from "./types.js";
+import { DAGManager } from "./dag.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
@@ -343,6 +344,93 @@ export async function startMCPServer(workspaceOverride?: string): Promise<void> 
         `Directives: ${directives.join(", ") || "none"}`,
         `Memory providers: ${memoryProviders.map(p => p.name).join(", ") || "none"}`,
       ];
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
+  // ── Tool: submit_dag ────────────────────────────────────────────────
+
+  const dagManager = new DAGManager(workspace);
+
+  server.tool(
+    "submit_dag",
+    "Submit a DAG (dependency workflow) — multiple tasks with dependencies. Each task runs only after its dependencies complete. Failure propagates downstream.",
+    {
+      dag_id: z.string().optional().describe("DAG identifier (auto-generated if omitted)"),
+      project: z.string().optional().describe("Default project for all tasks"),
+      model: z.string().optional().describe("Default model for all tasks"),
+      tasks: z.array(z.object({
+        id: z.string().describe("Unique task ID within this DAG"),
+        prompt: z.string().describe("What the task should accomplish"),
+        template: z.string().optional().describe("Template (default: ralph-loop)"),
+        depends_on: z.array(z.string()).optional().describe("IDs of tasks this depends on"),
+        params: z.record(z.string(), z.unknown()).optional().describe("Task parameters"),
+      })).describe("Tasks in the DAG"),
+    },
+    async (args) => {
+      const data: Record<string, any> = {
+        dag_id: args.dag_id,
+        project: args.project,
+        model: args.model,
+        tasks: args.tasks,
+      };
+
+      const result = dagManager.registerDAG(data);
+      if (!result) {
+        return { content: [{ type: "text" as const, text: "DAG registration failed. Check for cycles, missing IDs, or duplicate task IDs." }], isError: true };
+      }
+
+      // Write individual tasks to inbox (the engine will pick them up)
+      for (const task of result.tasks) {
+        const { data: clean } = sanitizeTask(task, "mcp");
+        const taskFile = join(workspace, "tasks", "inbox", `${task.id}.yaml`);
+        writeFileSync(taskFile, yaml.dump({
+          ...clean,
+          dag_id: result.dagId,
+          depends_on: task.depends_on || [],
+          created_at: new Date().toISOString(),
+        }));
+      }
+
+      return { content: [{ type: "text" as const, text: `DAG '${result.dagId}' submitted with ${result.tasks.length} tasks. Root tasks placed in inbox.` }] };
+    },
+  );
+
+  // ── Tool: dag_status ───────────────────────────────────────────────
+
+  server.tool(
+    "dag_status",
+    "Get the current status of a DAG (dependency workflow).",
+    {
+      dag_id: z.string().describe("The DAG identifier"),
+    },
+    async ({ dag_id }) => {
+      const status = dagManager.getStatus(dag_id);
+      if (!status) {
+        return { content: [{ type: "text" as const, text: `DAG '${dag_id}' not found.` }], isError: true };
+      }
+      return { content: [{ type: "text" as const, text: status }] };
+    },
+  );
+
+  // ── Tool: list_dags ────────────────────────────────────────────────
+
+  server.tool(
+    "list_dags",
+    "List all tracked DAGs and their status.",
+    {},
+    async () => {
+      const dags = dagManager.listDAGs();
+      if (dags.length === 0) {
+        return { content: [{ type: "text" as const, text: "No DAGs found." }] };
+      }
+
+      const lines = dags.map(dag => {
+        const completed = dag.nodes.filter(n => n.status === "completed").length;
+        const total = dag.nodes.length;
+        return `${dag.dagId} — ${completed}/${total} tasks — ${dag.status}`;
+      });
 
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },

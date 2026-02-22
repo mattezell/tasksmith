@@ -102,6 +102,44 @@ engine:
 
 Tasks are priority-queued (urgent → high → normal → low). The pool dequeues up to `concurrency` tasks and runs them in parallel. When one finishes, the next in queue starts automatically. Execution is fully async — the Node.js event loop stays free for inbox scanning, file watching, and pool management while Claude Code runs. CLI: `tasksmith workers` shows pool config and active worktrees.
 
+### Task DAG (Dependency Workflows)
+
+Chain tasks with explicit dependencies. Task B starts only after Task A completes. Failure propagates — if A fails, B and all downstream tasks are cancelled.
+
+```yaml
+# deploy-pipeline.yaml
+dag_id: deploy-pipeline
+project: my-api
+model: auto
+
+tasks:
+  - id: build
+    template: ralph-loop
+    prompt: "Build the project"
+    params:
+      validation_command: "npm run build"
+
+  - id: test
+    depends_on: [build]
+    template: ralph-loop
+    prompt: "Run tests"
+    params:
+      validation_command: "npm test"
+
+  - id: deploy
+    depends_on: [test]
+    template: ralph-loop
+    prompt: "Deploy to staging"
+```
+
+Submit via CLI: `tasksmith dag -f deploy-pipeline.yaml`
+Submit via inbox: Drop the YAML file in `tasks/inbox/`
+Submit via MCP: Use the `submit_dag` tool
+
+Check status: `tasksmith dag --status deploy-pipeline`
+
+DAG state is persisted to `tasks/dags/` so active DAGs survive restarts. Each step can run in its own worktree when worktree isolation is enabled.
+
 ### Git Worktree Isolation
 
 Each parallel task can run in its own isolated git worktree — no clobbering:

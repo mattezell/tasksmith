@@ -19,7 +19,7 @@
 | **0.8.1** | ✅ Done | OS-level sandbox isolation, `addCommandWrapper` plugin hook |
 | **0.8.2** | ✅ Done | Async concurrent execution, project-aware worktrees, rate limit auto-pause, CC output visibility, WSL2 bug fixes |
 | **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart, stale worktree cleanup CLI |
-| **0.8.4** | ✅ Done | Input sanitization, MCP server mode, smart model routing |
+| **0.8.4** | ✅ Done | Input sanitization, MCP server mode, smart model routing, task DAG |
 
 ---
 
@@ -41,8 +41,7 @@ The execution layer now has two complementary security controls: **permission mo
 
 ~~**Smart model routing**~~ ✅ Done in v0.8.4 — `model: auto` routes based on template type (haiku/sonnet/opus defaults), escalates on failure, and uses prompt length as a complexity signal.
 
-**Task DAG (dependency workflows)**
-Chain tasks with explicit dependencies. `task-b` starts only after `task-a` completes successfully. Failure propagates. Each step in its own worktree. Visualize with `tasksmith dag`.
+~~**Task DAG (dependency workflows)**~~ ✅ Done in v0.8.4 — `depends_on` field, cycle detection, failure propagation, persistence. CLI `tasksmith dag`, MCP tools `submit_dag`/`dag_status`/`list_dags`.
 
 **Cost tracking**
 Per-iteration cost is now logged from Claude Code's JSON output (v0.8.2). Remaining: aggregate cost per task, per project, per template. `tasksmith metrics --cost`. Supports Anthropic API pricing table.

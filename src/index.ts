@@ -8,3 +8,5 @@ export type { PluginContext, PluginActivateFn, PluginHookEvent, PluginHook, Plug
 export { sanitizeTask, trustLevel } from "./sanitize.js";
 export type { TrustLevel, SanitizeResult } from "./sanitize.js";
 export { startMCPServer } from "./mcp.js";
+export { DAGManager } from "./dag.js";
+export type { DAGState, DAGNode } from "./dag.js";

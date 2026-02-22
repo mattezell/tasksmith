@@ -23,6 +23,7 @@ import type {
   MemoryProvider, InboundMessage, Task,
 } from "./types.js";
 import { sanitizeTask, trustLevel } from "./sanitize.js";
+import { DAGManager } from "./dag.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -45,11 +46,16 @@ export class Coordinator {
   private pluginManager: PluginManager;
   private scheduler: Scheduler | null = null;
   private pool: WorkerPool | null = null;
+  private dagManager: DAGManager;
+
+  /** Pending DAG tasks: task ID → task data. Held until deps complete. */
+  private dagPending = new Map<string, Task>();
 
   constructor(workspace: string, config: TaskSmithConfig) {
     this.workspace = workspace;
     this.config = config;
     this.pluginManager = new PluginManager(workspace, config as any);
+    this.dagManager = new DAGManager(workspace);
   }
 
   // ── Bootstrap ──────────────────────────────────────────────────
@@ -142,7 +148,44 @@ export class Coordinator {
     if (content.startsWith("{")) {
       try {
         const data = JSON.parse(content);
-        if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
+        if (data && typeof data === "object") {
+          // DAG detection: has tasks array
+          if (DAGManager.isDAG(data)) {
+            this.cleanupSourceFile(msg);
+            this.handleDAG(data, msg.source);
+            return;
+          }
+          if ("prompt" in data || "template" in data) {
+            // Sanitize before passing to engine
+            const { data: clean, warnings, rejected, reason } = sanitizeTask(data, msg.source);
+            if (rejected) {
+              console.warn(`[coordinator] Rejected task from ${msg.source}: ${reason}`);
+              return;
+            }
+            if (warnings.length > 0) {
+              console.warn(`[coordinator] Sanitization (${msg.source}): ${warnings.join("; ")}`);
+            }
+            const taskYaml = yaml.dump(clean);
+            const task = this.engine.parseTask(taskYaml, msg.source);
+            this.cleanupSourceFile(msg);
+            this.submitTask(task, msg.source);
+            return;
+          }
+        }
+      } catch { /* Not valid JSON, continue */ }
+    }
+
+    // Try YAML parse
+    try {
+      const data = yaml.load(content) as Record<string, any>;
+      if (data && typeof data === "object") {
+        // DAG detection
+        if (DAGManager.isDAG(data)) {
+          this.cleanupSourceFile(msg);
+          this.handleDAG(data, msg.source);
+          return;
+        }
+        if ("prompt" in data || "template" in data) {
           // Sanitize before passing to engine
           const { data: clean, warnings, rejected, reason } = sanitizeTask(data, msg.source);
           if (rejected) {
@@ -152,32 +195,11 @@ export class Coordinator {
           if (warnings.length > 0) {
             console.warn(`[coordinator] Sanitization (${msg.source}): ${warnings.join("; ")}`);
           }
-          const taskYaml = yaml.dump(clean);
-          const task = this.engine.parseTask(taskYaml, msg.source);
+          const task = this.engine.parseTask(yaml.dump(clean), msg.source);
           this.cleanupSourceFile(msg);
           this.submitTask(task, msg.source);
           return;
         }
-      } catch { /* Not valid JSON, continue */ }
-    }
-
-    // Try YAML parse
-    try {
-      const data = yaml.load(content) as Record<string, any>;
-      if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
-        // Sanitize before passing to engine
-        const { data: clean, warnings, rejected, reason } = sanitizeTask(data, msg.source);
-        if (rejected) {
-          console.warn(`[coordinator] Rejected task from ${msg.source}: ${reason}`);
-          return;
-        }
-        if (warnings.length > 0) {
-          console.warn(`[coordinator] Sanitization (${msg.source}): ${warnings.join("; ")}`);
-        }
-        const task = this.engine.parseTask(yaml.dump(clean), msg.source);
-        this.cleanupSourceFile(msg);
-        this.submitTask(task, msg.source);
-        return;
       }
     } catch { /* Not YAML, try NL */ }
 
@@ -185,6 +207,75 @@ export class Coordinator {
     const task = this.nlToTask(content, msg);
     this.cleanupSourceFile(msg);
     this.submitTask(task, msg.source);
+  }
+
+  // ── DAG Handling ──────────────────────────────────────────────────
+
+  /**
+   * Handle a DAG submission. Registers the DAG, sanitizes all tasks,
+   * and submits root tasks (those with no dependencies) immediately.
+   * Tasks with unmet dependencies are held in dagPending.
+   */
+  private handleDAG(data: Record<string, any>, source: string): void {
+    const result = this.dagManager.registerDAG(data);
+    if (!result) return;
+
+    const { dagId, tasks: rawTasks } = result;
+
+    // Parse and sanitize each task, then hold or submit
+    for (const rawTask of rawTasks) {
+      const { data: clean, warnings, rejected, reason } = sanitizeTask(rawTask, source);
+      if (rejected) {
+        console.warn(`[coordinator] DAG '${dagId}': rejected task '${rawTask.id}': ${reason}`);
+        this.dagManager.reportFailure(dagId, rawTask.id);
+        continue;
+      }
+      if (warnings.length > 0) {
+        console.warn(`[coordinator] DAG '${dagId}' task '${rawTask.id}' sanitization: ${warnings.join("; ")}`);
+      }
+
+      const task = this.engine.parseTask(yaml.dump(clean), source);
+      // Set DAG metadata on the parsed task
+      task.dagId = dagId;
+      task.dependsOn = rawTask.depends_on || [];
+
+      const deps = task.dependsOn || [];
+      if (deps.length === 0) {
+        // Root task — submit immediately
+        this.dagManager.markActive(dagId, task.id);
+        this.submitTask(task, `dag:${dagId}`);
+      } else {
+        // Blocked task — hold until dependencies complete
+        this.dagPending.set(task.id, task);
+        console.log(`[coordinator] DAG '${dagId}': task '${task.id}' held (depends on: ${deps.join(", ")})`);
+      }
+    }
+  }
+
+  /**
+   * Called when a task completes or fails. If the task belongs to a DAG,
+   * checks for newly unblocked tasks and submits them.
+   */
+  private handleDAGCompletion(task: Task): void {
+    if (!task.dagId) return;
+
+    if (task.status === "completed") {
+      const ready = this.dagManager.reportCompletion(task.dagId, task.id);
+      for (const taskId of ready) {
+        const pendingTask = this.dagPending.get(taskId);
+        if (pendingTask) {
+          this.dagPending.delete(taskId);
+          this.dagManager.markActive(task.dagId, taskId);
+          this.submitTask(pendingTask, `dag:${task.dagId}`);
+        }
+      }
+    } else {
+      const cancelled = this.dagManager.reportFailure(task.dagId, task.id);
+      for (const taskId of cancelled) {
+        this.dagPending.delete(taskId);
+        console.log(`[coordinator] DAG '${task.dagId}': cancelled blocked task '${taskId}'`);
+      }
+    }
   }
 
   private nlToTask(text: string, msg: InboundMessage): Task {
@@ -345,7 +436,11 @@ export class Coordinator {
     this.pool = new WorkerPool(
       this.workspace,
       { concurrency, worktree: { ...POOL_DEFAULTS.worktree, ...(engineConfig.worktree || {}) } },
-      async (task, cwdOverride) => { await this.engine.execute(task, cwdOverride); },
+      async (task, cwdOverride) => {
+        await this.engine.execute(task, cwdOverride);
+        // Check for DAG unblocking after every task completion
+        this.handleDAGCompletion(task);
+      },
       poolLog,
     );
 

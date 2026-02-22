@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.4] - 2026-02-22
 
 ### Added
+- **Task DAG (dependency workflows)** (`dag.ts`) — chain tasks with explicit dependencies. A task only starts when all its dependencies complete successfully. Failure propagates downstream (all transitive dependents cancelled).
+  - DAG file format: YAML with `tasks` array and `depends_on` fields
+  - Cycle detection: validates graph has no cycles before registration
+  - Failure propagation: cancelled tasks marked with `cancelled` status
+  - Persistence: active DAGs saved to `tasks/dags/` and restored on restart
+  - New CLI command: `tasksmith dag` with `--list`, `--status <dagId>`, `--file <path>` flags
+  - 3 new MCP tools: `submit_dag`, `dag_status`, `list_dags`
+  - DAG auto-detection in all inbound providers (file drop, REST, Discord, MCP)
+  - Example: `examples/tasks/deploy-pipeline.yaml`
 - **Smart model routing** — set `model: auto` to let TaskSmith pick the optimal model based on template type and escalate on failure.
   - Template-based defaults: Haiku for heartbeat/code-review/doc-gen, Sonnet for ralph-loop/bug-hunt/research, Opus for project-init
   - Escalation on failure: Haiku → Sonnet → Opus across iterations (only when `model: auto`)
@@ -35,8 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coordinator.ts` — `handleInbound()` sanitizes JSON and YAML task data before passing to engine. `nlToTask()` runs extracted params through sanitization. Rejected tasks are logged and dropped.
 - `cli.ts` — new `mcp` command added to CLI (19 commands total).
 - `index.ts` — exports `sanitizeTask`, `trustLevel`, `TrustLevel`, `SanitizeResult`, `startMCPServer`.
+- `engine.ts` — added `resolveModel()` method with static template→model mapping and escalation logic. `execute()` calls `resolveModel()` before each iteration.
+- `types.ts` — `Task` interface gains optional `dependsOn` and `dagId` fields.
+- `coordinator.ts` — DAG detection in `handleInbound()`, `handleDAG()` and `handleDAGCompletion()` methods, DAG manager integration with pool completion callback.
 - `package.json` — added `@modelcontextprotocol/sdk` and `zod` as dependencies.
-- `ROADMAP.md` — input sanitization and MCP server mode marked complete.
+- `ROADMAP.md` — all four planned features marked complete.
 
 ## [0.8.3] - 2026-02-21
 
