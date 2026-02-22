@@ -5,6 +5,19 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-02-22
+
+### Added
+- **Validation failure diagnostics** — validation failures now show the exit code, failure classification tag (`[INFRA]`, `[BUILD]`, `[TEST]`, `[TIMEOUT]`), and first 5 lines of stderr in the console output. Operators can immediately see "No binary for ChromiumHeadless" instead of just "validation failed".
+- **Contradiction detection** — when Claude reports "all tests pass" but engine validation fails, a `⚠ CONTRADICTION` warning is logged with guidance that this is likely an infrastructure issue, not bad code.
+- **Task diagnostics section** — completed/failed tasks are enriched with a `diagnostics` block in the YAML: total cost, iterations used, failure class, last validation stderr, and whether a contradiction was detected.
+- **Cost accumulation** — total cost across all iterations is tracked per task and written to diagnostics.
+
+### Fixed
+- **Validation worktree targeting** — validation commands with absolute `cd /project/path` now rewrite the path to the worktree directory, so engine validation tests Claude's actual changes instead of the unchanged main repo.
+- **Sanitizer local trust bypass** — local sources (file_drop, CLI) no longer have shell metacharacters stripped from validation commands. Previously `&&` was stripped, turning chained commands into gibberish.
+- **`medium` priority** — added to the sanitizer's known priority values (was being defaulted to `normal` with a warning).
+
 ## [0.8.4] - 2026-02-22
 
 ### Added

@@ -32,6 +32,21 @@ interface CCJsonResult {
   is_error?: boolean;
 }
 
+/** Validation result with diagnostic detail for operator-facing output. */
+interface ValidationResult {
+  passed: boolean;
+  /** Combined stdout+stderr (truncated), used as error context for next iteration. */
+  output: string;
+  /** Exit code from the validation command (-1 for timeout). */
+  exitCode: number;
+  /** First N lines of stderr, the most useful diagnostic signal. */
+  stderrHead: string;
+  /** The actual command that was executed (after any worktree rewriting). */
+  command: string;
+  /** Failure classification: INFRA, BUILD, TEST, TIMEOUT, or NONE. */
+  failureClass: "NONE" | "INFRA" | "BUILD" | "TEST" | "TIMEOUT";
+}
+
 /** Rate limit detection result. */
 interface RateLimitInfo {
   isRateLimited: boolean;
@@ -391,9 +406,72 @@ export class TaskEngine {
 
   // ── Validation ─────────────────────────────────────────────────────
 
-  private validate(task: Task, cwdOverride?: string): { passed: boolean; output: string } {
+  /**
+   * Classify a validation failure based on stderr/stdout content.
+   * Returns a tag that helps operators distinguish infrastructure problems
+   * from actual code issues.
+   */
+  private classifyFailure(stderr: string, stdout: string, exitCode: number): ValidationResult['failureClass'] {
+    if (exitCode === -1) return "TIMEOUT";
+
+    const combined = (stderr + stdout).toLowerCase();
+
+    // INFRA: the validation harness itself is broken (missing binary, bad
+    // command syntax, missing env var, permission denied, not found, etc.)
+    const infraPatterns = [
+      "no binary for",
+      "command not found",
+      "no such file or directory",
+      "permission denied",
+      "env variable",
+      "chromium_bin",
+      "chrome_bin",
+      "enoent",
+      "too many arguments",
+      "source: not found",
+      "nvm: not found",
+      "node: not found",
+      "npm: not found",
+    ];
+    if (infraPatterns.some(p => combined.includes(p))) return "INFRA";
+
+    // BUILD: compilation/transpilation failed
+    const buildPatterns = [
+      "error ts",
+      "compilation failed",
+      "build failed",
+      "cannot find module",
+      "module not found",
+      "syntax error",
+      "syntaxerror",
+      "type error",
+      "typeerror:",
+      "error ng",
+      "failed to compile",
+    ];
+    if (buildPatterns.some(p => combined.includes(p))) return "BUILD";
+
+    // TEST: tests ran but some failed
+    const testPatterns = [
+      "failed",
+      "failing",
+      "fail:",
+      "failures:",
+      "tests failed",
+      "spec fail",
+      "assertion",
+      "expect(",
+      "expected",
+    ];
+    if (testPatterns.some(p => combined.includes(p))) return "TEST";
+
+    // Unknown — default to INFRA since the command did fail
+    return "INFRA";
+  }
+
+  private validate(task: Task, cwdOverride?: string): ValidationResult {
     let cmd = task.params.validation_command as string | undefined;
-    if (!cmd) return { passed: true, output: "" };
+    if (!cmd) return { passed: true, output: "", exitCode: 0, stderrHead: "", command: "", failureClass: "NONE" };
 
     let cwd: string | undefined = cwdOverride;
     if (!cwd && task.project) {
@@ -422,9 +500,23 @@ export class TaskEngine {
         timeout: 300_000,
         encoding: "utf-8",
       });
-      return { passed: result.status === 0, output: ((result.stdout || "") + (result.stderr || "")).slice(0, 5000) };
+
+      const stdout = result.stdout || "";
+      const stderr = result.stderr || "";
+      const exitCode = result.status ?? 1;
+      const passed = exitCode === 0;
+      const stderrHead = stderr.split("\n").filter(l => l.trim()).slice(0, 10).join("\n");
+
+      return {
+        passed,
+        output: (stdout + stderr).slice(0, 5000),
+        exitCode,
+        stderrHead,
+        command: cmd,
+        failureClass: passed ? "NONE" : this.classifyFailure(stderr, stdout, exitCode),
+      };
     } catch {
-      return { passed: false, output: "Validation timed out" };
+      return { passed: false, output: "Validation timed out", exitCode: -1, stderrHead: "", command: cmd, failureClass: "TIMEOUT" };
     }
   }
 
@@ -517,6 +609,9 @@ export class TaskEngine {
       const isRalph = task.template === "ralph-loop" || Boolean(task.params.validation_command);
       const maxIter = isRalph ? task.maxIterations : 1;
       let lastErr = "";
+      let totalCost = 0;
+      let lastValidation: ValidationResult | null = null;
+      let contradictionDetected = false;
 
       for (let i = 1; i <= maxIter; i++) {
         task.iterations = i;
@@ -538,6 +633,9 @@ export class TaskEngine {
           result.output || result.error || "",
           task, i,
         );
+
+        // Accumulate cost across iterations
+        if (ccOutput?.total_cost_usd) totalCost += ccOutput.total_cost_usd;
 
         // Rate limit detection: pause and retry without counting the iteration
         const rateLimit = detectRateLimit(ccOutput);
@@ -571,12 +669,39 @@ export class TaskEngine {
           if (v.passed) {
             task.result = `Passed after ${i} iteration(s) [model: ${iterModel}]`;
             task.status = "completed";
+            console.log(`[engine] ${task.id} iteration ${i}: ✓ validation passed`);
             break;
           }
+
+          // ── Detailed failure logging (operator-facing) ──────────────
           lastErr = v.output;
-          console.log(`[engine] ${task.id} iteration ${i}: validation failed`);
+          lastValidation = v;
+          const tag = `[${v.failureClass}]`;
+          console.log(`[engine] ${task.id} iteration ${i}: ${tag} validation failed (exit ${v.exitCode})`);
+
+          // Show the first few lines of stderr — this is the #1 diagnostic signal
+          if (v.stderrHead) {
+            const lines = v.stderrHead.split("\n").slice(0, 5);
+            for (const line of lines) {
+              console.log(`[engine] ${task.id}   stderr> ${line}`);
+            }
+          }
+
+          // Contradiction detection: agent claims success but engine disagrees.
+          // This typically means an infrastructure problem, not bad code.
+          const agentClaimedSuccess = ccOutput?.result
+            ? /\ball\b.*\bpass/i.test(ccOutput.result) || /\bsuccess/i.test(ccOutput.result) || /\bbuilt successfully/i.test(ccOutput.result)
+            : false;
+          if (agentClaimedSuccess) {
+            contradictionDetected = true;
+            console.warn(`[engine] ${task.id}   ⚠ CONTRADICTION: Agent reported success but engine validation failed`);
+            if (v.failureClass === "INFRA") {
+              console.warn(`[engine] ${task.id}   ⚠ Likely infrastructure issue, not bad code — consider fixing validation setup`);
+            }
+          }
+
           if (i < maxIter) {
-            await this.flushMemory(task, `Validation failed #${i}: ${lastErr.slice(0, 500)}`);
+            await this.flushMemory(task, `[${v.failureClass}] Validation failed #${i} (exit ${v.exitCode}): ${v.stderrHead.slice(0, 300) || lastErr.slice(0, 300)}`);
             await sleep((task.params.cooldown_seconds as number) || 5);
           }
         } else {
@@ -590,6 +715,16 @@ export class TaskEngine {
         task.status = "failed";
         task.error = `Failed after ${maxIter} iterations. Last: ${lastErr.slice(0, 1000)}`;
       }
+
+      // Enrich task with diagnostics for post-mortem review
+      (task as any).diagnostics = {
+        total_cost_usd: Math.round(totalCost * 10000) / 10000,
+        iterations_used: task.iterations,
+        failure_class: lastValidation?.failureClass || "NONE",
+        last_validation_exit_code: lastValidation?.exitCode ?? null,
+        last_validation_stderr_head: lastValidation?.stderrHead?.slice(0, 500) || null,
+        contradiction_detected: contradictionDetected,
+      };
     } catch (e: any) {
       task.status = "failed";
       task.error = e.message;
