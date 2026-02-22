@@ -8,7 +8,7 @@
 import { execSync, execFileSync, spawnSync, spawn } from "node:child_process";
 import {
   existsSync, readFileSync, writeFileSync, mkdirSync,
-  renameSync, unlinkSync, readdirSync,
+  renameSync, unlinkSync, readdirSync, realpathSync,
 } from "node:fs";
 import { join } from "node:path";
 import { v4 as uuidv4 } from "uuid";
@@ -392,13 +392,28 @@ export class TaskEngine {
   // ── Validation ─────────────────────────────────────────────────────
 
   private validate(task: Task, cwdOverride?: string): { passed: boolean; output: string } {
-    const cmd = task.params.validation_command as string | undefined;
+    let cmd = task.params.validation_command as string | undefined;
     if (!cmd) return { passed: true, output: "" };
 
     let cwd: string | undefined = cwdOverride;
     if (!cwd && task.project) {
       const pd = join(this.workspace, "projects", task.project);
       if (existsSync(pd)) cwd = pd;
+    }
+
+    // When running in a worktree, rewrite any absolute `cd /project/path` in
+    // the validation command to target the worktree instead.  Without this,
+    // validation tests the unchanged main repo rather than Claude's changes.
+    if (cwdOverride && task.project) {
+      const pd = join(this.workspace, "projects", task.project);
+      if (existsSync(pd)) {
+        const realProjectPath = realpathSync(pd);
+        if (cmd.includes(realProjectPath)) {
+          const rewritten = cmd.replace(realProjectPath, cwdOverride);
+          console.log(`[engine] [${task.id}] Validation cmd rewritten for worktree: ${realProjectPath} → ${cwdOverride}`);
+          cmd = rewritten;
+        }
+      }
     }
 
     try {

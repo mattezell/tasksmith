@@ -53,7 +53,7 @@ const KNOWN_MODELS = new Set([
 ]);
 
 /** Allowed priority values. */
-const KNOWN_PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
+const KNOWN_PRIORITIES = new Set(["low", "normal", "medium", "high", "urgent"]);
 
 /**
  * Params that external sources are NOT allowed to set.
@@ -160,19 +160,24 @@ function sanitizeValidationCommand(
     };
   }
 
-  // Strip dangerous shell characters
+  // Local sources (file_drop, CLI) are trusted — the user wrote the command.
+  // Only strip shell metacharacters and enforce the command allowlist for
+  // external sources where injection is a real concern.
+  if (trust === "local") {
+    return { value: trimmed };
+  }
+
+  // External: strip dangerous shell characters to prevent injection
   const cleaned = trimmed.replace(DANGEROUS_SHELL_CHARS, "");
 
   // Extract base command (first token)
   const baseCmd = cleaned.split(/\s+/)[0];
 
-  if (trust === "external") {
-    if (!ALLOWED_VALIDATION_COMMANDS.has(baseCmd)) {
-      return {
-        value: null,
-        warning: `Validation command "${baseCmd}" not in allowlist. Stripped from external task.`,
-      };
-    }
+  if (!ALLOWED_VALIDATION_COMMANDS.has(baseCmd)) {
+    return {
+      value: null,
+      warning: `Validation command "${baseCmd}" not in allowlist. Stripped from external task.`,
+    };
   }
 
   if (cleaned !== trimmed) {
