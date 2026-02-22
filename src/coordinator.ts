@@ -42,6 +42,7 @@ export class Coordinator {
   private archiver: SessionArchiver | null = null;
 
   private scanInterval: ReturnType<typeof setInterval> | null = null;
+  private dashboardInterval: ReturnType<typeof setInterval> | null = null;
   private shutdownRequested = false;
   private pluginManager: PluginManager;
   private scheduler: Scheduler | null = null;
@@ -455,6 +456,26 @@ export class Coordinator {
       } catch (e) { console.error("[coordinator] scan error:", e); }
     }, 3000);
 
+    // Periodic progress dashboard (every 5 minutes)
+    const dashboardMs = ((engineConfig.dashboardIntervalMinutes as number) || 5) * 60_000;
+    this.dashboardInterval = setInterval(() => {
+      if (this.shutdownRequested) return;
+      const s = this.engine.stats();
+      const poolStatus = this.pool!.status();
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const parts = [
+        `Active: ${poolStatus.active}/${poolStatus.concurrency}`,
+        `Queued: ${poolStatus.queued}`,
+        `Completed: ${s.completed}`,
+        `Failed: ${s.failed}`,
+        `Inbox: ${s.inbox}`,
+      ];
+      console.log(chalk.cyan(`[status] ${time} | ${parts.join(" | ")}`));
+      if (poolStatus.tasks.length > 0) {
+        console.log(chalk.dim(`[status]   ${poolStatus.tasks.join("  ")}`));
+      }
+    }, dashboardMs);
+
     // Start scheduler if schedules are configured
     const schedules = (this.config as any).schedules as Array<Record<string, unknown>> | undefined;
     if (schedules && schedules.length > 0) {
@@ -493,6 +514,7 @@ export class Coordinator {
 
         try {
           if (this.scanInterval) clearInterval(this.scanInterval);
+          if (this.dashboardInterval) clearInterval(this.dashboardInterval);
           if (this.scheduler) this.scheduler.stop();
           if (this.pool) {
             this.pool.pause();

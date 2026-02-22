@@ -163,6 +163,20 @@ export class TaskEngine {
     }
   }
 
+  /** Count task files in each lifecycle directory. */
+  stats(): { inbox: number; active: number; completed: number; failed: number } {
+    const count = (dir: string): number => {
+      try { return readdirSync(dir).filter(f => f.endsWith(".yaml") || f.endsWith(".json")).length; }
+      catch { return 0; }
+    };
+    return {
+      inbox: count(this.inbox),
+      active: count(this.active),
+      completed: count(this.completed),
+      failed: count(this.failed),
+    };
+  }
+
   // ── Context Assembly (Compiled Prompt Pattern) ─────────────────────
 
   assembleContext(task: Task): string {

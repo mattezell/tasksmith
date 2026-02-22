@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Contradiction detection** — when Claude reports "all tests pass" but engine validation fails, a `⚠ CONTRADICTION` warning is logged with guidance that this is likely an infrastructure issue, not bad code.
 - **Task diagnostics section** — completed/failed tasks are enriched with a `diagnostics` block in the YAML: total cost, iterations used, failure class, last validation stderr, and whether a contradiction was detected.
 - **Cost accumulation** — total cost across all iterations is tracked per task and written to diagnostics.
+- **Periodic progress dashboard** — prints a compact status line every 5 minutes (configurable via `engine.dashboardIntervalMinutes`): active/queued/completed/failed counts with active task IDs. Eliminates manual polling.
 
 ### Fixed
 - **Validation worktree targeting** — validation commands with absolute `cd /project/path` now rewrite the path to the worktree directory, so engine validation tests Claude's actual changes instead of the unchanged main repo.
