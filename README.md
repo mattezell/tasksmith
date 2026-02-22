@@ -4,7 +4,7 @@ Lightweight agent orchestration built on [Claude Code](https://docs.anthropic.co
 
 Drop a task file. Walk away. Come back to passing tests.
 
-TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Schedule recurring tasks with cron. Under 5,000 lines of core TypeScript. 9 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
+TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Chain tasks with dependency DAGs. Expose everything via MCP so agents can submit tasks to other agents. Schedule recurring tasks with cron. Under 7,000 lines of core TypeScript. 9 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
 
 ```bash
 npm install -g tasksmith-cli
@@ -388,7 +388,7 @@ List all templates and their sources: `tasksmith templates`
 
 ## Official Plugins
 
-8 plugins ship with `tasksmith-cli` — no separate install. Enable in config:
+9 plugins ship with `tasksmith-cli` — no separate install. Enable in config:
 
 ```yaml
 plugins:
@@ -517,6 +517,11 @@ tasksmith doctor             # Diagnose common issues
 tasksmith memory             # Browse/search memory (--hot, --search, --recent)
 tasksmith schedule           # Show configured task schedules
 tasksmith workers            # Show worker pool config and active worktrees
+tasksmith workers --cleanup  # Remove stale worktrees (--dry-run to preview)
+tasksmith dag -f pipeline.yaml  # Submit a DAG workflow
+tasksmith dag --list         # List active DAGs
+tasksmith dag --status <id>  # Check DAG status
+tasksmith mcp                # Start MCP server (stdio transport)
 tasksmith plugin list        # List bundled + community plugins
 tasksmith plugin create <n>  # Scaffold a new plugin
 tasksmith metrics            # Task execution stats (metrics plugin)
@@ -930,11 +935,15 @@ This means you can run the engine in `supervised` mode but submit individual tas
 │ file_drop│  Pool     │ discord_webhook   │
 │ discord  │  ┌──────┐ │ ntfy, slack       │
 │ rest_api │  │Engine│ │ email, sms        │
-│ watched  │  │ × N  │ │ webhook           │
-│          │  └──────┘ │                   │
+│ mcp      │  │ × N  │ │ webhook           │
+│ watched  │  └──────┘ │                   │
 │          │ Worktree  │                   │
 │          │ Isolation  │                  │
 ├──────────┴───────────┴───────────────────┤
+│   DAG Manager (dependency workflows)     │
+├──────────────────────────────────────────┤
+│   Input Sanitizer (trust levels)         │
+├──────────────────────────────────────────┤
 │        Scheduler (cron)                  │
 ├──────────────────────────────────────────┤
 │            Memory (hot/warm/cold)        │
@@ -951,22 +960,25 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
+├── cli.ts                802 lines   Commander CLI (21 commands)
+├── engine.ts             750 lines   Task lifecycle, Ralph Loop, model routing, rate limits
+├── plugins.ts            620 lines   Plugin loader, lifecycle hooks, scaffolding
+├── pool.ts               590 lines   Worker pool, concurrency, project-aware worktree isolation
+├── onboarding.ts         559 lines   10-step interactive setup wizard
+├── coordinator.ts        516 lines   Wires providers + engine + pool + plugins + DAG
+├── mcp.ts                488 lines   MCP server (stdio), 8 tools, 2 resources
 ├── config.ts             427 lines   Workspace resolution, config layering, template chain
-├── engine.ts             666 lines   Task lifecycle, Ralph Loop, async CC invocation, rate limits
-├── plugins.ts            583 lines   Plugin loader, lifecycle hooks, scaffolding
-├── cli.ts                572 lines   Commander CLI (18 commands)
-├── pool.ts               528 lines   Worker pool, concurrency, project-aware worktree isolation
-├── onboarding.ts         443 lines   9-step interactive setup wizard
-├── coordinator.ts        389 lines   Wires providers + engine + pool + plugins
+├── dag.ts                417 lines   Task DAG: dependency resolution, cycle detection, failure propagation
+├── sanitize.ts           365 lines   Input sanitization: trust levels, allowlist validation
+├── types.ts              266 lines   Interfaces, provider contracts, permission types
 ├── scheduler.ts          237 lines   Cron-based task scheduling
-├── types.ts              199 lines   Interfaces, provider contracts, permission types
-├── api.ts                174 lines   REST API server
-├── index.ts                7 lines   Package exports
+├── api.ts                186 lines   REST API server
+├── index.ts               12 lines   Package exports
 ├── providers/
-│   ├── comms/            395 lines   6 outbound + 4 inbound providers
+│   ├── comms/            409 lines   6 outbound + 5 inbound providers
 │   └── memory/           241 lines   Markdown, JSONL, compressed archives
 └── plugins/bundled/
-    ├── index.ts           86 lines   Lazy-load registry
+    ├── index.ts           92 lines   Lazy-load registry
     ├── github.ts         240 lines   GitHub Issues/PR integration
     ├── metrics.ts        296 lines   Execution analytics
     ├── docker.ts         246 lines   Container isolation
@@ -978,7 +990,7 @@ src/
     └── sandbox.ts        303 lines   OS-level sandbox isolation
 ```
 
-**Under 5,000 lines of core TypeScript** + 2,892 lines across 9 bundled plugins. Every module fits in your head.
+**Under 7,000 lines of core TypeScript** + 2,882 lines across 9 bundled plugins. Every module fits in your head.
 
 ### Design Principles
 
@@ -1031,7 +1043,7 @@ TaskSmith executes AI-generated code on your machine. This is the entire point �
 - **Use the `pr` worktree strategy** (default) so changes are reviewed before merging
 - **Customize deny lists** per-project to block project-specific sensitive operations
 
-See [ROADMAP.md](ROADMAP.md) for planned security improvements including input sanitization, param allowlists, API authentication, and human-in-the-loop approval gates.
+Input sanitization (v0.8.4) validates all inbound task data with a two-tier trust model. See [ROADMAP.md](ROADMAP.md) for remaining planned security improvements including API authentication and human-in-the-loop approval gates.
 
 ---
 
@@ -1046,7 +1058,7 @@ npm link           # makes `tasksmith` available globally
 ```
 
 ```bash
-tasksmith --version    # 0.8.2
+tasksmith --version    # 0.8.4
 tasksmith doctor       # check prerequisites
 ```
 
