@@ -48,7 +48,7 @@ const KNOWN_TEMPLATES = new Set([
 
 /** Allowed model values. */
 const KNOWN_MODELS = new Set([
-  "sonnet", "opus", "haiku",
+  "auto", "sonnet", "opus", "haiku",
   "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001",
 ]);
 

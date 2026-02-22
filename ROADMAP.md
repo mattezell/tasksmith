@@ -19,7 +19,7 @@
 | **0.8.1** | ✅ Done | OS-level sandbox isolation, `addCommandWrapper` plugin hook |
 | **0.8.2** | ✅ Done | Async concurrent execution, project-aware worktrees, rate limit auto-pause, CC output visibility, WSL2 bug fixes |
 | **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart, stale worktree cleanup CLI |
-| **0.8.4** | ✅ Done | Input sanitization, MCP server mode (stdio, 8 tools, 2 resources) |
+| **0.8.4** | ✅ Done | Input sanitization, MCP server mode, smart model routing |
 
 ---
 
@@ -39,8 +39,7 @@ The execution layer now has two complementary security controls: **permission mo
 
 ~~**MCP server mode**~~ ✅ Done in v0.8.4 — `tasksmith mcp` starts stdio MCP server with 8 tools and 2 resources. Any MCP client can submit tasks, check status, search memory.
 
-**Smart model routing**
-Route tasks to models based on complexity signals: prompt length, template type, retry count. Cheap model first, escalate on failure. Haiku for heartbeat/code-review, Sonnet for ralph-loop, Opus for complex multi-file refactors.
+~~**Smart model routing**~~ ✅ Done in v0.8.4 — `model: auto` routes based on template type (haiku/sonnet/opus defaults), escalates on failure, and uses prompt length as a complexity signal.
 
 **Task DAG (dependency workflows)**
 Chain tasks with explicit dependencies. `task-b` starts only after `task-a` completes successfully. Failure propagates. Each step in its own worktree. Visualize with `tasksmith dag`.

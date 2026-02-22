@@ -82,7 +82,7 @@ export async function startMCPServer(workspaceOverride?: string): Promise<void> 
       prompt: z.string().describe("What the task should accomplish"),
       template: z.string().optional().describe("Template to use: ralph-loop, bug-hunt, code-review, research, project-init, doc-gen, heartbeat"),
       project: z.string().optional().describe("Project name (must match a project in the workspace)"),
-      model: z.string().optional().describe("Model to use: sonnet, opus, haiku"),
+      model: z.string().optional().describe("Model to use: auto (smart routing), sonnet, opus, haiku. Default: auto"),
       priority: z.string().optional().describe("Priority: low, normal, high, urgent"),
       max_iterations: z.number().optional().describe("Max Ralph Loop iterations (1-20, default 5)"),
       validation_command: z.string().optional().describe("Command to validate each iteration (e.g. 'npm test')"),

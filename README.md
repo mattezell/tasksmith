@@ -127,6 +127,22 @@ On failure, the worktree is discarded (except `local`, which always preserves). 
 
 **Project-aware:** Worktrees are created in the actual git repository, not the TaskSmith workspace. Project symlinks (e.g., `~/.tasksmith/projects/my-api` → `/home/user/code/my-api`) are resolved automatically via `realpathSync`.
 
+### Smart Model Routing
+
+Set `model: auto` in your task file to let TaskSmith pick the right model automatically:
+
+| Template | Default Model | Rationale |
+|----------|---------------|-----------|
+| `heartbeat`, `code-review`, `doc-gen` | Haiku | Fast, cheap — these are simple tasks |
+| `ralph-loop`, `bug-hunt`, `research` | Sonnet | Standard complexity |
+| `project-init` | Opus | Complex multi-file generation |
+
+**Escalation on failure:** When `model: auto` is set and an iteration fails, TaskSmith escalates to the next tier (Haiku → Sonnet → Opus). This means simple tasks start cheap, and only burn Opus tokens when they actually need the extra capability.
+
+**Complexity signal:** Prompts longer than 5,000 characters are bumped from Haiku to Sonnet automatically.
+
+**Explicit override always wins:** Setting `model: sonnet` (or `opus`, `haiku`) bypasses routing entirely.
+
 ### Rate Limit Handling
 
 TaskSmith detects Anthropic API rate limits automatically and pauses until the limit resets:
@@ -664,7 +680,7 @@ id: my-task-id              # Optional — auto-generated if omitted
 template: ralph-loop        # Which template to use
 prompt: "Your instructions"
 project: my-api             # Project directory name
-model: sonnet               # opus or sonnet
+model: auto                 # auto (smart routing), sonnet, opus, haiku
 priority: normal            # low, normal, high, urgent
 max_iterations: 5           # Max retries for ralph-loop
 notify:

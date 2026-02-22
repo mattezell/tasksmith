@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.4] - 2026-02-22
 
 ### Added
+- **Smart model routing** — set `model: auto` to let TaskSmith pick the optimal model based on template type and escalate on failure.
+  - Template-based defaults: Haiku for heartbeat/code-review/doc-gen, Sonnet for ralph-loop/bug-hunt/research, Opus for project-init
+  - Escalation on failure: Haiku → Sonnet → Opus across iterations (only when `model: auto`)
+  - Complexity signal: prompts > 5K characters bump from Haiku to Sonnet
+  - Explicit model override always wins — routing only activates with `model: auto`
+  - "auto" added to allowed model values in sanitizer
 - **MCP server mode** (`mcp.ts`) — TaskSmith as an MCP (Model Context Protocol) server via stdio transport. Any MCP client (Claude Code, Cursor, VS Code + Copilot, ChatGPT) can submit tasks, check status, and search memory.
   - 8 MCP tools: `submit_task`, `get_task_status`, `list_tasks`, `cancel_task`, `search_memory`, `list_templates`, `list_projects`, `queue_status`
   - 2 MCP resources: `tasksmith://status` (system JSON), `tasksmith://memory` (hot memory)
