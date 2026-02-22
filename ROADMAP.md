@@ -19,6 +19,7 @@
 | **0.8.1** | ✅ Done | OS-level sandbox isolation, `addCommandWrapper` plugin hook |
 | **0.8.2** | ✅ Done | Async concurrent execution, project-aware worktrees, rate limit auto-pause, CC output visibility, WSL2 bug fixes |
 | **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart, stale worktree cleanup CLI |
+| **0.8.4** | ✅ Done | Input sanitization, MCP server mode, smart model routing, task DAG |
 
 ---
 
@@ -26,7 +27,7 @@
 
 The execution layer now has two complementary security controls: **permission modes** (v0.8.0) control Claude Code's tool access via CLI flags, and the **sandbox plugin** (v0.8.1) adds OS-level filesystem/network boundaries. These gaps remain:
 
-- **Input sanitization** — Task params from external sources (Discord, REST API, file drop) pass through without validation. Allowlists for known params, type coercion, and length limits.
+- ~~**Input sanitization**~~ — ✅ Done in v0.8.4. Allowlist-based validation layer for all inbound providers. Trust-level system (local vs external), path traversal prevention, command injection protection, permission escalation blocking, type coercion, and length limits.
 - **REST API authentication** — Port 8420 has no auth by default. Token-based auth with middleware.
 - **Discord bot channel scoping** — Bot currently accepts commands from anyone in the server. Guild + channel allowlist enforcement.
 - **Human-in-the-loop approval gates** — High-risk task types (e.g., `auto-merge` worktree strategy) should require explicit human confirmation before execution.
@@ -34,19 +35,16 @@ The execution layer now has two complementary security controls: **permission mo
 
 ---
 
-## v0.9.0 — Power Features
+## v0.8.x / v0.9.0 — Power Features (Next)
 
-**Task DAG (dependency workflows)**
-Chain tasks with explicit dependencies. `task-b` starts only after `task-a` completes successfully. Failure propagates. Visualize with `tasksmith dag`.
+~~**MCP server mode**~~ ✅ Done in v0.8.4 — `tasksmith mcp` starts stdio MCP server with 8 tools and 2 resources. Any MCP client can submit tasks, check status, search memory.
 
-**MCP server mode**
-TaskSmith exposes itself as an MCP server — other agents can submit tasks, query status, and read memory. "Agents helping agents."
+~~**Smart model routing**~~ ✅ Done in v0.8.4 — `model: auto` routes based on template type (haiku/sonnet/opus defaults), escalates on failure, and uses prompt length as a complexity signal.
+
+~~**Task DAG (dependency workflows)**~~ ✅ Done in v0.8.4 — `depends_on` field, cycle detection, failure propagation, persistence. CLI `tasksmith dag`, MCP tools `submit_dag`/`dag_status`/`list_dags`.
 
 **Cost tracking**
 Per-iteration cost is now logged from Claude Code's JSON output (v0.8.2). Remaining: aggregate cost per task, per project, per template. `tasksmith metrics --cost`. Supports Anthropic API pricing table.
-
-**Smart model routing**
-Route tasks to models based on complexity signals: prompt length, template type, retry count. Cheap model first, escalate on failure.
 
 ---
 

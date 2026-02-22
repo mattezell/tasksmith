@@ -88,6 +88,10 @@ export interface Task {
   error: string;
   iterations: number;
   sourceFile: string;
+  /** DAG support: task IDs this task depends on. Task won't start until all deps complete. */
+  dependsOn?: string[];
+  /** DAG support: groups related tasks. Set automatically when submitting a DAG file. */
+  dagId?: string;
 }
 
 // =============================================================================

@@ -413,6 +413,76 @@ export class TaskEngine {
     }
   }
 
+  // ── Smart Model Routing ──────────────────────────────────────────────
+
+  /**
+   * Model escalation tiers. On failure, escalate to the next tier.
+   * Explicit user model choice (not "auto") disables escalation.
+   */
+  private static readonly MODEL_TIERS = ["haiku", "sonnet", "opus"];
+
+  /**
+   * Default model for each template when model is "auto".
+   * Templates not listed default to "sonnet".
+   */
+  private static readonly TEMPLATE_MODEL_MAP: Record<string, string> = {
+    "heartbeat":    "haiku",
+    "code-review":  "haiku",
+    "code_review":  "haiku",
+    "doc-gen":      "haiku",
+    "doc_gen":      "haiku",
+    "research":     "sonnet",
+    "ralph-loop":   "sonnet",
+    "ralph_loop":   "sonnet",
+    "bug-hunt":     "sonnet",
+    "bug_hunt":     "sonnet",
+    "project-init": "opus",
+    "project_init": "opus",
+  };
+
+  /**
+   * Resolve the model for a given iteration.
+   *
+   * When task.model is "auto":
+   *   1. Pick initial model based on template type
+   *   2. On failure (iteration > 1), escalate to next tier
+   *   3. Consider prompt length as a complexity signal
+   *
+   * When task.model is explicit (e.g. "sonnet"), use it as-is.
+   *
+   * @returns The resolved model string and whether routing was applied
+   */
+  private resolveModel(task: Task, iteration: number, hadFailure: boolean): { model: string; routed: boolean } {
+    const requestedModel = task.model;
+
+    // Explicit model — no routing
+    if (requestedModel !== "auto") {
+      return { model: requestedModel, routed: false };
+    }
+
+    // Auto-routing: start with template-based default
+    let baseModel = TaskEngine.TEMPLATE_MODEL_MAP[task.template] || "sonnet";
+
+    // Complexity signal: very long prompts suggest complex tasks → bump up
+    if (task.prompt.length > 5000 && baseModel === "haiku") {
+      baseModel = "sonnet";
+    }
+
+    // Escalation on failure: move up a tier for each failed iteration
+    if (hadFailure && iteration > 1) {
+      const currentTier = TaskEngine.MODEL_TIERS.indexOf(baseModel);
+      // Escalate by the number of failed iterations (capped at opus)
+      const escalatedTier = Math.min(currentTier + (iteration - 1), TaskEngine.MODEL_TIERS.length - 1);
+      const escalatedModel = TaskEngine.MODEL_TIERS[escalatedTier];
+      if (escalatedModel !== baseModel) {
+        console.log(`[engine] ${task.id} model escalation: ${baseModel} → ${escalatedModel} (iteration ${iteration})`);
+        return { model: escalatedModel, routed: true };
+      }
+    }
+
+    return { model: baseModel, routed: true };
+  }
+
   // ── Task Execution ─────────────────────────────────────────────────
 
   async execute(task: Task, cwdOverride?: string): Promise<void> {
@@ -420,7 +490,13 @@ export class TaskEngine {
     task.startedAt = new Date().toISOString();
     this.processing.add(task.id);
 
-    console.log(`[engine] Executing ${task.id}: template=${task.template} model=${task.model}${cwdOverride ? ` cwd=${cwdOverride}` : ""}`);
+    // Resolve initial model
+    const { model: initialModel, routed } = this.resolveModel(task, 1, false);
+    if (routed) {
+      console.log(`[engine] ${task.id} model routed: ${task.model} → ${initialModel} (template: ${task.template})`);
+    }
+
+    console.log(`[engine] Executing ${task.id}: template=${task.template} model=${initialModel}${cwdOverride ? ` cwd=${cwdOverride}` : ""}`);
 
     try {
       const isRalph = task.template === "ralph-loop" || Boolean(task.params.validation_command);
@@ -429,6 +505,11 @@ export class TaskEngine {
 
       for (let i = 1; i <= maxIter; i++) {
         task.iterations = i;
+
+        // Resolve model for this iteration (may escalate after failures)
+        const { model: iterModel } = this.resolveModel(task, i, lastErr !== "");
+        task.model = iterModel;
+
         let prompt = this.assembleContext(task);
 
         if (lastErr) {
@@ -473,7 +554,7 @@ export class TaskEngine {
         if (isRalph) {
           const v = this.validate(task, cwdOverride);
           if (v.passed) {
-            task.result = `Passed after ${i} iteration(s)`;
+            task.result = `Passed after ${i} iteration(s) [model: ${iterModel}]`;
             task.status = "completed";
             break;
           }

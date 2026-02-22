@@ -1,0 +1,38 @@
+# Example DAG: Deploy pipeline
+# Tasks run in dependency order. Failure propagates downstream.
+#
+# Graph:
+#   build → test ─┐
+#                  ├→ deploy
+#   lint  ─────────┘
+#
+dag_id: deploy-pipeline
+project: my-api
+model: auto
+
+tasks:
+  - id: build
+    template: ralph-loop
+    prompt: "Build the project — ensure all TypeScript compiles cleanly"
+    params:
+      validation_command: "npm run build"
+
+  - id: lint
+    template: ralph-loop
+    prompt: "Fix all linting errors"
+    params:
+      validation_command: "npm run lint"
+
+  - id: test
+    depends_on: [build]
+    template: ralph-loop
+    prompt: "Run the test suite and fix any failures"
+    params:
+      validation_command: "npm test"
+
+  - id: deploy
+    depends_on: [test, lint]
+    template: ralph-loop
+    prompt: "Deploy to staging environment"
+    params:
+      validation_command: "npm run deploy:staging -- --dry-run"

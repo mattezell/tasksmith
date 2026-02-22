@@ -5,6 +5,51 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-02-22
+
+### Added
+- **Task DAG (dependency workflows)** (`dag.ts`) — chain tasks with explicit dependencies. A task only starts when all its dependencies complete successfully. Failure propagates downstream (all transitive dependents cancelled).
+  - DAG file format: YAML with `tasks` array and `depends_on` fields
+  - Cycle detection: validates graph has no cycles before registration
+  - Failure propagation: cancelled tasks marked with `cancelled` status
+  - Persistence: active DAGs saved to `tasks/dags/` and restored on restart
+  - New CLI command: `tasksmith dag` with `--list`, `--status <dagId>`, `--file <path>` flags
+  - 3 new MCP tools: `submit_dag`, `dag_status`, `list_dags`
+  - DAG auto-detection in all inbound providers (file drop, REST, Discord, MCP)
+  - Example: `examples/tasks/deploy-pipeline.yaml`
+- **Smart model routing** — set `model: auto` to let TaskSmith pick the optimal model based on template type and escalate on failure.
+  - Template-based defaults: Haiku for heartbeat/code-review/doc-gen, Sonnet for ralph-loop/bug-hunt/research, Opus for project-init
+  - Escalation on failure: Haiku → Sonnet → Opus across iterations (only when `model: auto`)
+  - Complexity signal: prompts > 5K characters bump from Haiku to Sonnet
+  - Explicit model override always wins — routing only activates with `model: auto`
+  - "auto" added to allowed model values in sanitizer
+- **MCP server mode** (`mcp.ts`) — TaskSmith as an MCP (Model Context Protocol) server via stdio transport. Any MCP client (Claude Code, Cursor, VS Code + Copilot, ChatGPT) can submit tasks, check status, and search memory.
+  - 8 MCP tools: `submit_task`, `get_task_status`, `list_tasks`, `cancel_task`, `search_memory`, `list_templates`, `list_projects`, `queue_status`
+  - 2 MCP resources: `tasksmith://status` (system JSON), `tasksmith://memory` (hot memory)
+  - New CLI command: `tasksmith mcp` starts the server
+  - Input sanitized at external trust level (same security as REST API)
+  - Memory providers initialized for search capability
+  - Dependencies: `@modelcontextprotocol/sdk`, `zod`
+- **Input sanitization module** (`sanitize.ts`) — allowlist-based validation layer for all inbound task data. Two-tier trust model: "local" (file_drop, CLI) gets light validation; "external" (REST API, Discord bot, MCP, watched folders) gets strict enforcement.
+  - **Path traversal prevention** — project names stripped of `..`, `/`, `\`, and restricted to `[a-zA-Z0-9._-]`
+  - **Command injection protection** — `validation_command` checked against an allowlist of safe executables (npm, pytest, cargo, etc.); shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`, etc.) stripped
+  - **Permission escalation blocking** — external sources cannot set `permission_mode`, `allowed_tools`, `disallowed_tools`, `sandbox`, or `sandbox_domains` via task params
+  - **Enum validation** — `template`, `model`, and `priority` fields validated against known values; unknown values from external sources default safely
+  - **Type coercion & length limits** — string fields clamped to safe maximums (prompt: 50K, project: 100, validation_command: 500); `max_iterations` capped at 20
+  - **Sanitization warnings** — all modifications logged with `[coordinator]` / `[api]` prefix for auditability; REST API returns warnings in response body
+  - **REST API rejection** — malformed tasks (missing prompt + template) return HTTP 400 instead of creating empty tasks
+
+### Changed
+- `api.ts` — `POST /tasks` now sanitizes input via `sanitizeTask()` before writing to inbox. Returns `warnings` array when fields were modified. Returns 400 on rejected tasks.
+- `coordinator.ts` — `handleInbound()` sanitizes JSON and YAML task data before passing to engine. `nlToTask()` runs extracted params through sanitization. Rejected tasks are logged and dropped.
+- `cli.ts` — new `mcp` command added to CLI (19 commands total).
+- `index.ts` — exports `sanitizeTask`, `trustLevel`, `TrustLevel`, `SanitizeResult`, `startMCPServer`.
+- `engine.ts` — added `resolveModel()` method with static template→model mapping and escalation logic. `execute()` calls `resolveModel()` before each iteration.
+- `types.ts` — `Task` interface gains optional `dependsOn` and `dagId` fields.
+- `coordinator.ts` — DAG detection in `handleInbound()`, `handleDAG()` and `handleDAGCompletion()` methods, DAG manager integration with pool completion callback.
+- `package.json` — added `@modelcontextprotocol/sdk` and `zod` as dependencies.
+- `ROADMAP.md` — all four planned features marked complete.
+
 ## [0.8.3] - 2026-02-21
 
 ### Added
@@ -331,6 +376,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration management with YAML and deep merge
 - Workspace scaffolding
 
+[0.8.4]: https://github.com/mattezell/tasksmith/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/mattezell/tasksmith/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/mattezell/tasksmith/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/mattezell/tasksmith/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/mattezell/tasksmith/compare/v0.7.2...v0.8.0

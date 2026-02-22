@@ -4,6 +4,7 @@
  * TaskSmith CLI
  *
  * tasksmith run                Start the engine
+ * tasksmith mcp                Start MCP server (stdio transport)
  * tasksmith submit             Submit a task
  * tasksmith status             System status
  * tasksmith setup              Onboarding wizard
@@ -62,6 +63,76 @@ program
 
     const coordinator = new Coordinator(ws, config);
     await coordinator.run();
+  });
+
+// ── MCP ───────────────────────────────────────────────────────────
+
+program
+  .command("mcp")
+  .description("Start TaskSmith as an MCP server (stdio transport)")
+  .action(async () => {
+    const { startMCPServer } = await import("./mcp.js");
+    await startMCPServer(program.opts().dir);
+  });
+
+// ── DAG ───────────────────────────────────────────────────────────
+
+program
+  .command("dag")
+  .description("Show DAG (dependency workflow) status")
+  .option("-l, --list", "List all DAGs")
+  .option("-s, --status <dagId>", "Show status of a specific DAG")
+  .option("-f, --file <path>", "Submit a DAG file")
+  .action(async (opts: any) => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const { DAGManager } = await import("./dag.js");
+    const dagMgr = new DAGManager(ws);
+
+    if (opts.file) {
+      // Submit a DAG file
+      const content = readFileSync(opts.file, "utf-8");
+      const data = yaml.load(content) as Record<string, any>;
+      if (!DAGManager.isDAG(data)) {
+        console.error(chalk.red("File is not a DAG (no 'tasks' array found)"));
+        return;
+      }
+      const result = dagMgr.registerDAG(data);
+      if (result) {
+        console.log(chalk.green(`DAG '${result.dagId}' registered with ${result.tasks.length} tasks`));
+        console.log(chalk.dim("Submit to the running engine by dropping the file in tasks/inbox/"));
+        const inbox = join(ws, "tasks", "inbox");
+        mkdirSync(inbox, { recursive: true });
+        const dest = join(inbox, `${result.dagId}.yaml`);
+        writeFileSync(dest, yaml.dump(data));
+        console.log(chalk.green(`  → Copied to ${dest}`));
+      }
+      return;
+    }
+
+    if (opts.status) {
+      const status = dagMgr.getStatus(opts.status);
+      if (status) {
+        console.log(status);
+      } else {
+        console.log(chalk.dim(`DAG '${opts.status}' not found.`));
+      }
+      return;
+    }
+
+    // Default: list all DAGs
+    const dags = dagMgr.listDAGs();
+    if (dags.length === 0) {
+      console.log(chalk.dim("No DAGs found."));
+      return;
+    }
+
+    for (const dag of dags) {
+      const completed = dag.nodes.filter(n => n.status === "completed").length;
+      const total = dag.nodes.length;
+      const icon = dag.status === "completed" ? chalk.green("✓") :
+        dag.status === "failed" ? chalk.red("✗") : chalk.yellow("◉");
+      console.log(`  ${icon} ${dag.dagId} — ${completed}/${total} tasks — ${dag.status}`);
+    }
   });
 
 // ── SUBMIT ─────────────────────────────────────────────────────────
