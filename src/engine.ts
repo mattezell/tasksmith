@@ -402,7 +402,7 @@ export class TaskEngine {
     }
 
     try {
-      const result = spawnSync("sh", ["-c", cmd], {
+      const result = spawnSync("bash", ["-c", cmd], {
         cwd: cwd && existsSync(cwd) ? cwd : undefined,
         timeout: 300_000,
         encoding: "utf-8",
