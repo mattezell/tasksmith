@@ -22,6 +22,7 @@ import type {
   TaskSmithConfig, OutboundCommsProvider, InboundCommsProvider,
   MemoryProvider, InboundMessage, Task,
 } from "./types.js";
+import { sanitizeTask, trustLevel } from "./sanitize.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -142,7 +143,16 @@ export class Coordinator {
       try {
         const data = JSON.parse(content);
         if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
-          const taskYaml = yaml.dump(data);
+          // Sanitize before passing to engine
+          const { data: clean, warnings, rejected, reason } = sanitizeTask(data, msg.source);
+          if (rejected) {
+            console.warn(`[coordinator] Rejected task from ${msg.source}: ${reason}`);
+            return;
+          }
+          if (warnings.length > 0) {
+            console.warn(`[coordinator] Sanitization (${msg.source}): ${warnings.join("; ")}`);
+          }
+          const taskYaml = yaml.dump(clean);
           const task = this.engine.parseTask(taskYaml, msg.source);
           this.cleanupSourceFile(msg);
           this.submitTask(task, msg.source);
@@ -155,14 +165,23 @@ export class Coordinator {
     try {
       const data = yaml.load(content) as Record<string, any>;
       if (data && typeof data === "object" && ("prompt" in data || "template" in data)) {
-        const task = this.engine.parseTask(content, msg.source);
+        // Sanitize before passing to engine
+        const { data: clean, warnings, rejected, reason } = sanitizeTask(data, msg.source);
+        if (rejected) {
+          console.warn(`[coordinator] Rejected task from ${msg.source}: ${reason}`);
+          return;
+        }
+        if (warnings.length > 0) {
+          console.warn(`[coordinator] Sanitization (${msg.source}): ${warnings.join("; ")}`);
+        }
+        const task = this.engine.parseTask(yaml.dump(clean), msg.source);
         this.cleanupSourceFile(msg);
         this.submitTask(task, msg.source);
         return;
       }
     } catch { /* Not YAML, try NL */ }
 
-    // Natural language → task
+    // Natural language → task (nlToTask handles its own sanitization via source)
     const task = this.nlToTask(content, msg);
     this.cleanupSourceFile(msg);
     this.submitTask(task, msg.source);
@@ -218,11 +237,24 @@ export class Coordinator {
       }
     }
 
+    // Sanitize the constructed task data
+    const rawTask = { template, prompt: text, project, params, model, priority };
+    const { data: clean, warnings } = sanitizeTask(rawTask, msg.source);
+    if (warnings.length > 0) {
+      console.warn(`[coordinator] NL task sanitization (${msg.source}): ${warnings.join("; ")}`);
+    }
+
     const now = new Date().toISOString();
     const id = `task-${now.slice(0, 19).replace(/[T:]/g, "").replace(/-/g, "")}-${uuidv4().slice(0, 6)}`;
 
     return {
-      id, template, prompt: text, project, params, model, priority,
+      id,
+      template: clean.template || template,
+      prompt: clean.prompt || text,
+      project: clean.project || "",
+      params: clean.params || {},
+      model: clean.model || model,
+      priority: clean.priority || priority,
       maxIterations: 5, notify: ["all"], status: "pending",
       createdAt: now, startedAt: "", completedAt: "",
       result: "", error: "", iterations: 0,

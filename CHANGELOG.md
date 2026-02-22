@@ -5,6 +5,24 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-02-22
+
+### Added
+- **Input sanitization module** (`sanitize.ts`) — allowlist-based validation layer for all inbound task data. Two-tier trust model: "local" (file_drop, CLI) gets light validation; "external" (REST API, Discord bot, watched folders) gets strict enforcement.
+  - **Path traversal prevention** — project names stripped of `..`, `/`, `\`, and restricted to `[a-zA-Z0-9._-]`
+  - **Command injection protection** — `validation_command` checked against an allowlist of safe executables (npm, pytest, cargo, etc.); shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`, etc.) stripped
+  - **Permission escalation blocking** — external sources cannot set `permission_mode`, `allowed_tools`, `disallowed_tools`, `sandbox`, or `sandbox_domains` via task params
+  - **Enum validation** — `template`, `model`, and `priority` fields validated against known values; unknown values from external sources default safely
+  - **Type coercion & length limits** — string fields clamped to safe maximums (prompt: 50K, project: 100, validation_command: 500); `max_iterations` capped at 20
+  - **Sanitization warnings** — all modifications logged with `[coordinator]` / `[api]` prefix for auditability; REST API returns warnings in response body
+  - **REST API rejection** — malformed tasks (missing prompt + template) return HTTP 400 instead of creating empty tasks
+
+### Changed
+- `api.ts` — `POST /tasks` now sanitizes input via `sanitizeTask()` before writing to inbox. Returns `warnings` array when fields were modified. Returns 400 on rejected tasks.
+- `coordinator.ts` — `handleInbound()` sanitizes JSON and YAML task data before passing to engine. `nlToTask()` runs extracted params through sanitization. Rejected tasks are logged and dropped.
+- `index.ts` — exports `sanitizeTask`, `trustLevel`, `TrustLevel`, `SanitizeResult` for plugin and API consumer use.
+- `ROADMAP.md` — input sanitization marked complete; MCP server mode promoted to "next" priority.
+
 ## [0.8.3] - 2026-02-21
 
 ### Added

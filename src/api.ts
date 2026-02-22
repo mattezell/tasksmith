@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 import type { TaskEngine } from "./engine.js";
 import type { MemoryProvider } from "./types.js";
+import { sanitizeTask } from "./sanitize.js";
 
 export async function createAPIServer(
   workspace: string,
@@ -31,25 +32,36 @@ export async function createAPIServer(
 
   app.post("/tasks", async (req, reply) => {
     const body = req.body as Record<string, any>;
+
+    // Sanitize input from external REST API
+    const { data, warnings, rejected, reason } = sanitizeTask(body, "rest_api");
+    if (rejected) {
+      reply.status(400);
+      return { error: reason };
+    }
+    if (warnings.length > 0) {
+      console.warn(`[api] Task sanitization warnings: ${warnings.join("; ")}`);
+    }
+
     const now = new Date().toISOString();
     const taskId = `task-${now.slice(0, 19).replace(/[T:]/g, "").replace(/-/g, "")}-${uuidv4().slice(0, 6)}`;
 
     const taskData = {
       id: taskId,
-      template: body.template || "ralph-loop",
-      prompt: body.prompt || "",
-      project: body.project || "",
-      model: body.model || "sonnet",
-      priority: body.priority || "normal",
-      max_iterations: body.maxIterations || body.max_iterations || 5,
-      params: body.params || {},
+      template: data.template || "ralph-loop",
+      prompt: data.prompt || "",
+      project: data.project || "",
+      model: data.model || "sonnet",
+      priority: data.priority || "normal",
+      max_iterations: data.maxIterations || data.max_iterations || 5,
+      params: data.params || {},
       created_at: now,
     };
 
     const taskFile = join(workspace, "tasks", "inbox", `${taskId}.yaml`);
     writeFileSync(taskFile, yaml.dump(taskData));
 
-    return { id: taskId, status: "queued", file: taskFile };
+    return { id: taskId, status: "queued", file: taskFile, warnings: warnings.length > 0 ? warnings : undefined };
   });
 
   // ── List tasks ───────────────────────────────────────────────
