@@ -7,3 +7,4 @@ export { PluginManager, scaffoldPlugin } from "./plugins.js";
 export type { PluginContext, PluginActivateFn, PluginHookEvent, PluginHook, PluginManifest } from "./plugins.js";
 export { sanitizeTask, trustLevel } from "./sanitize.js";
 export type { TrustLevel, SanitizeResult } from "./sanitize.js";
+export { startMCPServer } from "./mcp.js";

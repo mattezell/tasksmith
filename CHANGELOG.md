@@ -8,7 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.4] - 2026-02-22
 
 ### Added
-- **Input sanitization module** (`sanitize.ts`) — allowlist-based validation layer for all inbound task data. Two-tier trust model: "local" (file_drop, CLI) gets light validation; "external" (REST API, Discord bot, watched folders) gets strict enforcement.
+- **MCP server mode** (`mcp.ts`) — TaskSmith as an MCP (Model Context Protocol) server via stdio transport. Any MCP client (Claude Code, Cursor, VS Code + Copilot, ChatGPT) can submit tasks, check status, and search memory.
+  - 8 MCP tools: `submit_task`, `get_task_status`, `list_tasks`, `cancel_task`, `search_memory`, `list_templates`, `list_projects`, `queue_status`
+  - 2 MCP resources: `tasksmith://status` (system JSON), `tasksmith://memory` (hot memory)
+  - New CLI command: `tasksmith mcp` starts the server
+  - Input sanitized at external trust level (same security as REST API)
+  - Memory providers initialized for search capability
+  - Dependencies: `@modelcontextprotocol/sdk`, `zod`
+- **Input sanitization module** (`sanitize.ts`) — allowlist-based validation layer for all inbound task data. Two-tier trust model: "local" (file_drop, CLI) gets light validation; "external" (REST API, Discord bot, MCP, watched folders) gets strict enforcement.
   - **Path traversal prevention** — project names stripped of `..`, `/`, `\`, and restricted to `[a-zA-Z0-9._-]`
   - **Command injection protection** — `validation_command` checked against an allowlist of safe executables (npm, pytest, cargo, etc.); shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`, etc.) stripped
   - **Permission escalation blocking** — external sources cannot set `permission_mode`, `allowed_tools`, `disallowed_tools`, `sandbox`, or `sandbox_domains` via task params
@@ -20,8 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `api.ts` — `POST /tasks` now sanitizes input via `sanitizeTask()` before writing to inbox. Returns `warnings` array when fields were modified. Returns 400 on rejected tasks.
 - `coordinator.ts` — `handleInbound()` sanitizes JSON and YAML task data before passing to engine. `nlToTask()` runs extracted params through sanitization. Rejected tasks are logged and dropped.
-- `index.ts` — exports `sanitizeTask`, `trustLevel`, `TrustLevel`, `SanitizeResult` for plugin and API consumer use.
-- `ROADMAP.md` — input sanitization marked complete; MCP server mode promoted to "next" priority.
+- `cli.ts` — new `mcp` command added to CLI (19 commands total).
+- `index.ts` — exports `sanitizeTask`, `trustLevel`, `TrustLevel`, `SanitizeResult`, `startMCPServer`.
+- `package.json` — added `@modelcontextprotocol/sdk` and `zod` as dependencies.
+- `ROADMAP.md` — input sanitization and MCP server mode marked complete.
 
 ## [0.8.3] - 2026-02-21
 

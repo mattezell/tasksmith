@@ -4,6 +4,7 @@
  * TaskSmith CLI
  *
  * tasksmith run                Start the engine
+ * tasksmith mcp                Start MCP server (stdio transport)
  * tasksmith submit             Submit a task
  * tasksmith status             System status
  * tasksmith setup              Onboarding wizard
@@ -62,6 +63,16 @@ program
 
     const coordinator = new Coordinator(ws, config);
     await coordinator.run();
+  });
+
+// ── MCP ───────────────────────────────────────────────────────────
+
+program
+  .command("mcp")
+  .description("Start TaskSmith as an MCP server (stdio transport)")
+  .action(async () => {
+    const { startMCPServer } = await import("./mcp.js");
+    await startMCPServer(program.opts().dir);
   });
 
 // ── SUBMIT ─────────────────────────────────────────────────────────

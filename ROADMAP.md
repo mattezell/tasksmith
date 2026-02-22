@@ -19,6 +19,7 @@
 | **0.8.1** | ✅ Done | OS-level sandbox isolation, `addCommandWrapper` plugin hook |
 | **0.8.2** | ✅ Done | Async concurrent execution, project-aware worktrees, rate limit auto-pause, CC output visibility, WSL2 bug fixes |
 | **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart, stale worktree cleanup CLI |
+| **0.8.4** | ✅ Done | Input sanitization, MCP server mode (stdio, 8 tools, 2 resources) |
 
 ---
 
@@ -36,8 +37,7 @@ The execution layer now has two complementary security controls: **permission mo
 
 ## v0.8.x / v0.9.0 — Power Features (Next)
 
-**MCP server mode** *(promoted to next — high ecosystem leverage)*
-TaskSmith exposes itself as an MCP server — other agents can submit tasks, query status, and read memory. "Agents helping agents." Any MCP client (Claude Code, Cursor, VS Code + Copilot, etc.) becomes an inbound provider for free.
+~~**MCP server mode**~~ ✅ Done in v0.8.4 — `tasksmith mcp` starts stdio MCP server with 8 tools and 2 resources. Any MCP client can submit tasks, check status, search memory.
 
 **Smart model routing**
 Route tasks to models based on complexity signals: prompt length, template type, retry count. Cheap model first, escalate on failure. Haiku for heartbeat/code-review, Sonnet for ralph-loop, Opus for complex multi-file refactors.

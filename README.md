@@ -415,6 +415,7 @@ Scaffold your own: `tasksmith plugin create my-thing`
 | Provider | Description |
 |----------|-------------|
 | `file_drop` | Always on. Watches `tasks/inbox/` for YAML/JSON files |
+| `mcp` | MCP server (stdio). Any MCP client can submit tasks |
 | `discord_bot` | `@forge fix the auth bug in my-api` → parsed to task |
 | `rest_api` | HTTP server on port 8420 |
 | `watched_folder` | Watch any directory for task files |
@@ -602,6 +603,57 @@ curl http://localhost:8420/tasks?status=completed
 # Health check
 curl http://localhost:8420/health
 ```
+
+---
+
+## MCP Server
+
+TaskSmith can run as an [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server, letting any MCP client — Claude Code, Cursor, VS Code + Copilot, ChatGPT, etc. — submit tasks, check status, and search memory directly.
+
+```bash
+# Start as MCP server (stdio transport)
+tasksmith mcp
+
+# With explicit workspace
+tasksmith mcp --dir ~/my-workspace
+```
+
+### Client Configuration
+
+Add to your MCP client config (e.g., `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "tasksmith": {
+      "command": "tasksmith",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `submit_task` | Submit a new task (prompt, template, project, model, priority, validation command) |
+| `get_task_status` | Get details of a specific task by ID |
+| `list_tasks` | List tasks filtered by status (pending/active/completed/failed) |
+| `cancel_task` | Cancel a pending or active task |
+| `search_memory` | Search TaskSmith's memory for past results and learnings |
+| `list_templates` | Show available task templates |
+| `list_projects` | Show configured projects |
+| `queue_status` | System overview: queue counts, directives, memory providers |
+
+### Resources
+
+| Resource | URI | Description |
+|----------|-----|-------------|
+| System Status | `tasksmith://status` | Queue counts, version, workspace path (JSON) |
+| Memory | `tasksmith://memory` | Current MEMORY.md hot memory contents |
+
+Input from MCP clients is sanitized with the same security layer as REST API and Discord inputs (external trust level).
 
 ---
 
