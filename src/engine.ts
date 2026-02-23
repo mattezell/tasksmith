@@ -16,6 +16,7 @@ import yaml from "js-yaml";
 import type {
   Task, TaskStatus, Priority, Notification, MemoryEntry,
   OutboundCommsProvider, MemoryProvider, TaskSmithConfig,
+  CircuitBreakerConfig,
 } from "./types.js";
 import type { MarkdownMemoryProvider } from "./providers/memory/providers.js";
 import type { PluginManager } from "./plugins.js";
@@ -120,6 +121,138 @@ function detectRateLimit(parsed: CCJsonResult | null): RateLimitInfo {
   } catch {
     return { isRateLimited: true, resetTime: null, sleepMs: 15 * 60 * 1000 };
   }
+}
+
+// =============================================================================
+// CIRCUIT BREAKER — detect stuck iteration patterns and eject early
+// =============================================================================
+
+/** Snapshot of a single iteration's outcome for circuit breaker analysis. */
+export interface IterationSnapshot {
+  iteration: number;
+  failureClass: ValidationResult['failureClass'];
+  exitCode: number;
+  stderrFingerprint: string;
+  contradiction: boolean;
+  cumulativeCostUsd: number;
+}
+
+/** Result when the circuit breaker decides to eject a task. */
+export interface EjectionResult {
+  rule: string;   // INFRA_STUCK, CONTRADICTION_LOOP, STUCK_LOOP, COST_CEILING, TIMEOUT_STUCK
+  reason: string;
+}
+
+/**
+ * Normalize stderr into a deterministic fingerprint for comparison.
+ * Strips PIDs, timestamps, hex addresses, and noise to detect repeated identical errors.
+ */
+export function fingerprint(stderrHead: string): string {
+  if (!stderrHead) return "";
+  return stderrHead
+    .toLowerCase()
+    // Strip PIDs (e.g. "pid 12345", "[12345]")
+    .replace(/\bpid\s*\d+/g, "pid X")
+    .replace(/\[\d{3,}\]/g, "[X]")
+    // Strip timestamps (ISO, HH:MM:SS, epoch-like) — note: runs after toLowerCase()
+    .replace(/\d{4}-\d{2}-\d{2}[t ]\d{2}:\d{2}:\d{2}[.\d]*/g, "TIMESTAMP")
+    .replace(/\b\d{2}:\d{2}:\d{2}\b/g, "TIMESTAMP")
+    // Strip hex addresses (0x7fff..., 0xDEADBEEF)
+    .replace(/0x[0-9a-f]{4,}/g, "0xHEX")
+    // Take first 3 non-empty lines
+    .split("\n")
+    .map(l => l.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("|");
+}
+
+/**
+ * Count the longest contiguous tail run in an array where predicate holds.
+ * E.g. [F, T, T, T] with predicate=T → 3 (last 3 match).
+ */
+export function consecutiveTailRun<T>(arr: T[], predicate: (item: T) => boolean): number {
+  let count = 0;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (predicate(arr[i])) count++;
+    else break;
+  }
+  return count;
+}
+
+/**
+ * Evaluate the circuit breaker rules against the iteration history.
+ * Returns an EjectionResult if the task should be ejected, or null to continue.
+ *
+ * Rules checked in order:
+ *   1. INFRA_STUCK — N consecutive identical INFRA failures
+ *   2. CONTRADICTION_LOOP — N consecutive contradictions (agent claims success, engine disagrees)
+ *   3. STUCK_LOOP — N consecutive identical failures of any class
+ *   4. COST_CEILING — cumulative cost exceeds threshold
+ *   5. TIMEOUT_STUCK — N consecutive timeouts
+ */
+export function evaluateCircuitBreaker(
+  history: IterationSnapshot[],
+  config: CircuitBreakerConfig,
+): EjectionResult | null {
+  if (!config.enabled || history.length === 0) return null;
+
+  // Rule 1: INFRA_STUCK — repeated identical infrastructure failures
+  const infraRun = consecutiveTailRun(history, s => s.failureClass === "INFRA");
+  if (infraRun >= config.maxConsecutiveInfra) {
+    // Check they're actually identical (same fingerprint)
+    const tail = history.slice(-infraRun);
+    const fp = tail[0].stderrFingerprint;
+    if (fp && tail.every(s => s.stderrFingerprint === fp)) {
+      return {
+        rule: "INFRA_STUCK",
+        reason: `${infraRun} consecutive identical INFRA failures — likely a broken validation setup, not bad code`,
+      };
+    }
+  }
+
+  // Rule 2: CONTRADICTION_LOOP — agent keeps claiming success but engine disagrees
+  const contradictionRun = consecutiveTailRun(history, s => s.contradiction);
+  if (contradictionRun >= config.maxConsecutiveContradictions) {
+    return {
+      rule: "CONTRADICTION_LOOP",
+      reason: `${contradictionRun} consecutive contradictions — agent claims success but validation keeps failing`,
+    };
+  }
+
+  // Rule 3: STUCK_LOOP — identical failures regardless of class
+  const lastFp = history[history.length - 1].stderrFingerprint;
+  if (lastFp) {
+    const identicalRun = consecutiveTailRun(history, s => s.stderrFingerprint === lastFp);
+    if (identicalRun >= config.maxConsecutiveIdenticalFailures) {
+      return {
+        rule: "STUCK_LOOP",
+        reason: `${identicalRun} consecutive identical failures (${history[history.length - 1].failureClass}) — no progress being made`,
+      };
+    }
+  }
+
+  // Rule 4: COST_CEILING — cumulative cost exceeded
+  if (config.costCeilingUsd > 0) {
+    const lastCost = history[history.length - 1].cumulativeCostUsd;
+    if (lastCost >= config.costCeilingUsd) {
+      return {
+        rule: "COST_CEILING",
+        reason: `Cumulative cost $${lastCost.toFixed(2)} exceeds ceiling $${config.costCeilingUsd.toFixed(2)}`,
+      };
+    }
+  }
+
+  // Rule 5: TIMEOUT_STUCK — repeated timeouts
+  const timeoutRun = consecutiveTailRun(history, s => s.failureClass === "TIMEOUT");
+  if (timeoutRun >= config.maxConsecutiveTimeouts) {
+    return {
+      rule: "TIMEOUT_STUCK",
+      reason: `${timeoutRun} consecutive timeouts — task likely cannot complete within time limits`,
+    };
+  }
+
+  return null;
 }
 
 export class TaskEngine {
@@ -626,6 +759,19 @@ export class TaskEngine {
       let totalCost = 0;
       let lastValidation: ValidationResult | null = null;
       let contradictionDetected = false;
+      let ejection: EjectionResult | null = null;
+
+      // Circuit breaker: merge defaults < config < task-level overrides
+      const cbDefaults: CircuitBreakerConfig = {
+        enabled: true, maxConsecutiveInfra: 2, maxConsecutiveContradictions: 3,
+        maxConsecutiveIdenticalFailures: 3, maxConsecutiveTimeouts: 2, costCeilingUsd: 0,
+      };
+      const cbConfig: CircuitBreakerConfig = {
+        ...cbDefaults,
+        ...(this.defaults.circuitBreaker || {}),
+        ...(task.params.circuit_breaker as Partial<CircuitBreakerConfig> || {}),
+      };
+      const cbHistory: IterationSnapshot[] = [];
 
       for (let i = 1; i <= maxIter; i++) {
         task.iterations = i;
@@ -714,6 +860,24 @@ export class TaskEngine {
             }
           }
 
+          // Circuit breaker: record this iteration and check for ejection
+          cbHistory.push({
+            iteration: i,
+            failureClass: v.failureClass,
+            exitCode: v.exitCode,
+            stderrFingerprint: fingerprint(v.stderrHead),
+            contradiction: agentClaimedSuccess,
+            cumulativeCostUsd: totalCost,
+          });
+
+          ejection = evaluateCircuitBreaker(cbHistory, cbConfig);
+          if (ejection) {
+            console.error(`[engine] ${task.id} ⛔ CIRCUIT BREAKER: ${ejection.rule} — ${ejection.reason}`);
+            task.error = `Early ejection (${ejection.rule}): ${ejection.reason}`;
+            task.status = "failed";
+            break;
+          }
+
           if (i < maxIter) {
             await this.flushMemory(task, `[${v.failureClass}] Validation failed #${i} (exit ${v.exitCode}): ${v.stderrHead.slice(0, 300) || lastErr.slice(0, 300)}`);
             await sleep((task.params.cooldown_seconds as number) || 5);
@@ -730,14 +894,22 @@ export class TaskEngine {
         task.error = `Failed after ${maxIter} iterations. Last: ${lastErr.slice(0, 1000)}`;
       }
 
-      // Enrich task with diagnostics for post-mortem review
+      // Enrich task with diagnostics for post-mortem review.
+      // Use finalValidation so completed tasks show NONE instead of stale failure data.
+      const finalValidation = task.status === "completed"
+        ? { failureClass: "NONE" as const, exitCode: 0, stderrHead: "" }
+        : lastValidation;
+
       (task as any).diagnostics = {
         total_cost_usd: Math.round(totalCost * 10000) / 10000,
         iterations_used: task.iterations,
-        failure_class: lastValidation?.failureClass || "NONE",
-        last_validation_exit_code: lastValidation?.exitCode ?? null,
-        last_validation_stderr_head: lastValidation?.stderrHead?.slice(0, 500) || null,
+        failure_class: finalValidation?.failureClass || "NONE",
+        last_validation_exit_code: finalValidation?.exitCode ?? null,
+        last_validation_stderr_head: finalValidation?.stderrHead?.slice(0, 500) || null,
         contradiction_detected: contradictionDetected,
+        ejected: ejection !== null,
+        ejection_rule: ejection?.rule || null,
+        ejection_iteration: ejection ? task.iterations : null,
       };
     } catch (e: any) {
       task.status = "failed";

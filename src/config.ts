@@ -72,6 +72,7 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
       enabled: false,
       strategy: "pr",
       baseBranch: "main",
+      setup: {},
     },
   },
   communication: {
@@ -134,6 +135,14 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
     notifyOnFailure: true,
     model: "sonnet",
     priority: "normal",
+    circuitBreaker: {
+      enabled: true,
+      maxConsecutiveInfra: 2,
+      maxConsecutiveContradictions: 3,
+      maxConsecutiveIdenticalFailures: 3,
+      maxConsecutiveTimeouts: 2,
+      costCeilingUsd: 0,
+    },
   },
 };
 

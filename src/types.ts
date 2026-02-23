@@ -207,6 +207,29 @@ export interface PermissionsConfig {
   deny: string[];    // --disallowedTools rules (e.g. "Bash(rm -rf *)", "Bash(sudo *)")
 }
 
+export interface WorktreeSetupConfig {
+  /** Dirs to copy from main repo to worktree (e.g. ["node_modules", ".next"]) */
+  copyDirs?: string[];
+  /** Commands to run in the worktree after copy (e.g. ["npm ci --prefer-offline"]) */
+  commands?: string[];
+  /** Timeout per setup command in ms (default: 120000) */
+  timeoutMs?: number;
+}
+
+export interface CircuitBreakerConfig {
+  enabled: boolean;
+  /** Max consecutive identical INFRA failures before ejection (default: 2) */
+  maxConsecutiveInfra: number;
+  /** Max consecutive contradictions before ejection (default: 3) */
+  maxConsecutiveContradictions: number;
+  /** Max consecutive identical failures of any class before ejection (default: 3) */
+  maxConsecutiveIdenticalFailures: number;
+  /** Max consecutive timeouts before ejection (default: 2) */
+  maxConsecutiveTimeouts: number;
+  /** Cumulative cost ceiling in USD; 0 = disabled (default: 0) */
+  costCeilingUsd: number;
+}
+
 export interface EngineConfig {
   concurrency: number;
   permissionMode: PermissionMode;
@@ -218,6 +241,7 @@ export interface EngineConfig {
     cleanupOnSuccess?: boolean;
     cleanupOnFailure?: boolean;
     prLabels?: string[];
+    setup?: WorktreeSetupConfig;
   };
 }
 
@@ -262,5 +286,6 @@ export interface TaskSmithConfig {
     notifyOnFailure: boolean;
     model: string;
     priority: string;
+    circuitBreaker?: CircuitBreakerConfig;
   };
 }

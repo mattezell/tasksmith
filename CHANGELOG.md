@@ -5,6 +5,31 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6] - 2026-02-23
+
+### Added
+- **Worktree setup** — new `engine.worktree.setup` config block copies gitignored dependency directories (e.g. `node_modules`) from the main repo into worktrees after creation and optionally runs setup commands. Uses `cp --reflink=auto` for CoW on supported filesystems. Non-fatal: failures are logged as warnings but don't block task execution.
+- **Circuit breaker** — detects stuck iteration patterns and ejects tasks early to save tokens. Five rules checked after each failed validation:
+  - `INFRA_STUCK` — N identical infrastructure failures (default: 2)
+  - `CONTRADICTION_LOOP` — N consecutive agent-claims-success-but-validation-fails (default: 3)
+  - `STUCK_LOOP` — N identical failures of any class (default: 3)
+  - `COST_CEILING` — cumulative cost exceeds configurable threshold (default: disabled)
+  - `TIMEOUT_STUCK` — N consecutive timeouts (default: 2)
+- **`CircuitBreakerConfig` type** — new interface in `types.ts` with per-task override support via `task.params.circuit_breaker`.
+- **`WorktreeSetupConfig` type** — new interface in `types.ts` for worktree setup configuration.
+- **Ejection diagnostics** — task YAML diagnostics block now includes `ejected`, `ejection_rule`, and `ejection_iteration` fields.
+- **Circuit breaker unit tests** — 40 tests covering `fingerprint()`, `consecutiveTailRun()`, and `evaluateCircuitBreaker()` (all 5 rules, thresholds, disabled state, mixed histories, edge cases).
+
+### Fixed
+- **Diagnostics bug** — `lastValidation` previously only captured failure state, so completed tasks showed stale failure data in their diagnostics. Now uses `finalValidation` which reports `failureClass: "NONE"` for completed tasks.
+
+### Changed
+- `types.ts` — `EngineConfig.worktree` gains optional `setup` field; `TaskSmithConfig.taskDefaults` gains optional `circuitBreaker` field.
+- `config.ts` — `DEFAULT_CONFIG` includes empty worktree setup and circuit breaker defaults (enabled=true).
+- `pool.ts` — `WorktreeManager` gains `setup()` method; `startWorker()` calls it after worktree creation. `WorktreeConfig` gains optional `setup` field.
+- `engine.ts` — circuit breaker types and pure functions (`fingerprint`, `consecutiveTailRun`, `evaluateCircuitBreaker`) added. Ralph-loop tracks iteration history and evaluates circuit breaker after each validation failure. Diagnostics block uses `finalValidation` for correct completed-task state.
+- Version bumped to 0.8.6.
+
 ## [0.8.5] - 2026-02-22
 
 ### Added
@@ -391,6 +416,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration management with YAML and deep merge
 - Workspace scaffolding
 
+[0.8.6]: https://github.com/mattezell/tasksmith/compare/v0.8.5...v0.8.6
+[0.8.5]: https://github.com/mattezell/tasksmith/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/mattezell/tasksmith/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/mattezell/tasksmith/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/mattezell/tasksmith/compare/v0.8.1...v0.8.2

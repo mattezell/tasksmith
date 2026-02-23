@@ -29,7 +29,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import type { Task } from "./types.js";
+import type { Task, WorktreeSetupConfig } from "./types.js";
 
 // ── Config Types ────────────────────────────────────────────────────
 
@@ -42,6 +42,7 @@ export interface WorktreeConfig {
   cleanupOnSuccess: boolean;
   cleanupOnFailure: boolean;
   prLabels: string[];
+  setup?: WorktreeSetupConfig;
 }
 
 export interface PoolConfig {
@@ -183,6 +184,74 @@ export class WorktreeManager {
     }
 
     return { taskId: task.id, branch, path: wtPath, baseBranch: base, repoPath: projectPath };
+  }
+
+  /**
+   * Run post-creation setup on a worktree: copy gitignored dependency
+   * directories from the main repo and execute setup commands.
+   *
+   * Non-fatal: failures are logged as warnings but don't prevent task execution.
+   * Claude can still fix missing dependencies during its iterations.
+   */
+  setup(wt: WorktreeInfo, projectPath: string): void {
+    const cfg = this.config.setup;
+    if (!cfg) return;
+
+    const timeout = cfg.timeoutMs ?? 120_000;
+
+    // Copy directories (e.g. node_modules) from main repo to worktree
+    if (cfg.copyDirs?.length) {
+      for (const dir of cfg.copyDirs) {
+        const src = join(projectPath, dir);
+        const dest = join(wt.path, dir);
+
+        if (!existsSync(src)) {
+          this.log.warn(`[${wt.taskId}] setup: skip copy ${dir} — not found in ${projectPath}`);
+          continue;
+        }
+
+        const start = Date.now();
+        // --reflink=auto uses CoW on supported filesystems (btrfs, xfs), falls back to regular copy
+        const res = spawnSync("cp", ["--reflink=auto", "-r", src, dest], {
+          encoding: "utf-8",
+          stdio: "pipe",
+          timeout,
+        });
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+
+        if (res.status === 0) {
+          this.log.info(`[${wt.taskId}] setup: copied ${dir} (${elapsed}s)`);
+        } else {
+          this.log.warn(`[${wt.taskId}] setup: copy ${dir} failed (${elapsed}s): ${(res.stderr || "").trim()}`);
+        }
+      }
+    }
+
+    // Run setup commands (e.g. "npm ci --prefer-offline")
+    if (cfg.commands?.length) {
+      for (const cmd of cfg.commands) {
+        const start = Date.now();
+        const res = spawnSync("bash", ["-c", cmd], {
+          cwd: wt.path,
+          encoding: "utf-8",
+          stdio: "pipe",
+          timeout,
+        });
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+
+        if (res.status === 0) {
+          this.log.info(`[${wt.taskId}] setup: "${cmd}" OK (${elapsed}s)`);
+        } else {
+          this.log.warn(`[${wt.taskId}] setup: "${cmd}" failed (exit ${res.status}, ${elapsed}s)`);
+          if (res.stderr) {
+            const lines = res.stderr.split("\n").filter(l => l.trim()).slice(0, 5);
+            for (const line of lines) {
+              this.log.warn(`[${wt.taskId}] setup:   ${line}`);
+            }
+          }
+        }
+      }
+    }
   }
 
   /** Finalize a worktree after task execution */
@@ -347,16 +416,24 @@ export class WorktreeManager {
     }
   }
 
-  /** Remove a worktree and its branch */
+  /** Remove a worktree, its local branch, and its remote branch */
   remove(wt: WorktreeInfo): void {
     try {
       spawnSync("git", ["worktree", "remove", wt.path, "--force"], {
         cwd: wt.repoPath, encoding: "utf-8", stdio: "pipe",
       });
-      // Delete the branch if it wasn't merged
+      // Delete the local branch if it wasn't merged
       spawnSync("git", ["branch", "-D", wt.branch], {
         cwd: wt.repoPath, encoding: "utf-8", stdio: "pipe",
       });
+      // Delete the remote branch to avoid orphaned refs on origin
+      const remoteDel = spawnSync("git", ["push", "origin", "--delete", wt.branch], {
+        cwd: wt.repoPath, encoding: "utf-8", stdio: "pipe",
+      });
+      if (remoteDel.status === 0) {
+        this.log.info(`[${wt.taskId}] Deleted remote branch: origin/${wt.branch}`);
+      }
+      // status !== 0 is fine — branch may not have been pushed
     } catch {
       // Best effort cleanup
       if (existsSync(wt.path)) {
@@ -500,6 +577,7 @@ export class WorkerPool {
       if (projectPath) {
         worktree = this.worktreeManager.create(task, projectPath);
         if (worktree) {
+          this.worktreeManager.setup(worktree, projectPath);
           this.log.info(`[${task.id}] Isolated in worktree: ${worktree.branch} (repo: ${projectPath})`);
         }
       } else {

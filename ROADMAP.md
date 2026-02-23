@@ -21,6 +21,7 @@
 | **0.8.3** | ✅ Done | Auto-commit before merge, worktree reuse on restart, stale worktree cleanup CLI |
 | **0.8.4** | ✅ Done | Input sanitization, MCP server mode, smart model routing, task DAG |
 | **0.8.5** | ✅ Done | Validation worktree targeting, sanitizer local trust bypass, `medium` priority |
+| **0.8.6** | ✅ Done | Worktree setup (copy node_modules), circuit breaker, diagnostics fix |
 
 ---
 

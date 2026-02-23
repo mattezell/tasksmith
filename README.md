@@ -52,6 +52,36 @@ JSON works too:
 
 ---
 
+## Adding a Project
+
+TaskSmith needs to know where your code lives. Symlink your project into the projects directory:
+
+```bash
+ln -s /home/you/code/my-api ~/.tasksmith/projects/my-api
+```
+
+Now you can reference it by name in task files (`project: my-api`), CLI commands (`--project my-api`), and chat messages. Worktrees, validation commands, and project `CLAUDE.md` context all resolve through this symlink automatically.
+
+Add as many as you want:
+
+```bash
+ln -s ~/code/frontend    ~/.tasksmith/projects/frontend
+ln -s ~/code/shared-lib  ~/.tasksmith/projects/shared-lib
+ln -s ~/work/monorepo/packages/api  ~/.tasksmith/projects/api
+```
+
+Each symlink points to the **actual git repo root** (or subdirectory) where Claude Code should run. TaskSmith resolves symlinks via `realpathSync`, so worktrees are created in the real repository — not inside `~/.tasksmith/`.
+
+If you'd rather not use symlinks, set `workspace.projectsDir` to the directory your projects already live in:
+
+```yaml
+# ~/.tasksmith/config/tasksmith.yaml
+workspace:
+  projectsDir: ~/code    # every subdirectory becomes a project
+```
+
+---
+
 ## How It Works
 
 ```
