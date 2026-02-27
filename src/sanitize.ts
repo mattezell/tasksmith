@@ -200,6 +200,11 @@ export function trustLevel(source: string): TrustLevel {
     case "local":
     case "scanInbox":
       return "local";
+    case "mcp":
+    case "rest_api":
+    case "discord_bot":
+    case "watched_folder":
+      return "external";
     default:
       return "external";
   }
