@@ -388,6 +388,178 @@ export class WatchedFolderProvider implements InboundCommsProvider {
   }
 }
 
+export class SlackEventsProvider implements InboundCommsProvider {
+  readonly name = "slack_events";
+  private port: number;
+  private signingSecret: string;
+  private triggerPrefix: string;
+  private channelIds: Set<string>;
+  private server: ReturnType<typeof createServer> | null = null;
+
+  constructor(config: Record<string, unknown>) {
+    this.port = (config.port as number) || 8422;
+    this.signingSecret = (config.signingSecret as string) || "";
+    this.triggerPrefix = (config.triggerPrefix as string) || "/tasksmith";
+    const channels = (config.channelIds as string[]) || [];
+    this.channelIds = new Set(channels);
+  }
+
+  async start(callback: InboundCallback): Promise<void> {
+    if (!this.signingSecret) {
+      console.error("[slack_events] signingSecret is required. Skipping.");
+      return;
+    }
+
+    this.server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      if (req.method !== "POST") {
+        res.writeHead(405).end("Method Not Allowed");
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const rawBody = Buffer.concat(chunks);
+      const bodyStr = rawBody.toString("utf-8");
+
+      // Verify Slack request signature
+      const timestamp = req.headers["x-slack-request-timestamp"] as string | undefined;
+      const signature = req.headers["x-slack-signature"] as string | undefined;
+      if (!this.verifySlackSignature(bodyStr, timestamp, signature)) {
+        res.writeHead(401).end("Invalid signature");
+        return;
+      }
+
+      let payload: Record<string, any>;
+      try {
+        payload = JSON.parse(bodyStr);
+      } catch {
+        res.writeHead(400).end("Invalid JSON");
+        return;
+      }
+
+      // Handle Slack URL verification challenge
+      if (payload.type === "url_verification") {
+        res.writeHead(200, { "Content-Type": "text/plain" }).end(payload.challenge);
+        return;
+      }
+
+      // Process event callbacks
+      if (payload.type === "event_callback") {
+        const event = payload.event;
+        if (!event) {
+          res.writeHead(200).end("OK");
+          return;
+        }
+
+        const msg = this.eventToMessage(event, payload.team_id);
+        if (msg) {
+          // Respond to Slack quickly to avoid retries (3s timeout)
+          res.writeHead(200).end("OK");
+          try {
+            await callback(msg);
+          } catch (e) {
+            console.error(`[slack_events] Error handling ${event.type}:`, e);
+          }
+        } else {
+          res.writeHead(200).end("OK");
+        }
+        return;
+      }
+
+      res.writeHead(200).end("OK");
+    });
+
+    this.server.listen(this.port, () => {
+      console.log(`[slack_events] Listening on :${this.port}`);
+    });
+  }
+
+  async stop(): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.server) {
+        this.server.close(() => resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  async test(): Promise<boolean> {
+    return Boolean(this.signingSecret);
+  }
+
+  // ── Signature Verification ──────────────────────────────────────
+
+  private verifySlackSignature(body: string, timestamp: string | undefined, signature: string | undefined): boolean {
+    if (!timestamp || !signature) return false;
+
+    // Reject requests older than 5 minutes to prevent replay attacks
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - parseInt(timestamp)) > 300) return false;
+
+    const baseString = `v0:${timestamp}:${body}`;
+    const expected = "v0=" + createHmac("sha256", this.signingSecret).update(baseString).digest("hex");
+    try {
+      return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  }
+
+  // ── Event → InboundMessage Mapping ──────────────────────────────
+
+  private eventToMessage(event: Record<string, any>, teamId: string): InboundMessage | null {
+    // Skip bot messages
+    if (event.bot_id || event.subtype === "bot_message") return null;
+
+    const eventType = event.type as string;
+
+    // app_mention — someone @mentioned the bot
+    if (eventType === "app_mention") {
+      return this.parseSlackMessage(event, teamId);
+    }
+
+    // message — direct message or channel message
+    if (eventType === "message" && !event.subtype) {
+      // Filter by channel if configured
+      if (this.channelIds.size > 0 && !this.channelIds.has(event.channel)) {
+        return null;
+      }
+      return this.parseSlackMessage(event, teamId);
+    }
+
+    return null;
+  }
+
+  private parseSlackMessage(event: Record<string, any>, teamId: string): InboundMessage | null {
+    let text = (event.text || "").trim();
+
+    // Strip bot mention (<@U12345>) if present
+    text = text.replace(/<@[A-Z0-9]+>/g, "").trim();
+
+    // Require trigger prefix for channel messages (not DMs)
+    if (event.channel_type !== "im") {
+      if (!text.toLowerCase().startsWith(this.triggerPrefix.toLowerCase())) return null;
+      text = text.slice(this.triggerPrefix.length).trim();
+    }
+
+    if (!text) return null;
+
+    return {
+      source: "slack_events",
+      sender: event.user || "unknown",
+      content: text,
+      timestamp: new Date(parseFloat(event.ts || "0") * 1000),
+      metadata: {
+        channel: event.channel,
+        teamId,
+        threadTs: event.thread_ts,
+        ts: event.ts,
+      },
+    };
+  }
+}
+
 export class GitHubWebhookProvider implements InboundCommsProvider {
   readonly name = "github_webhook";
   private port: number;
@@ -588,6 +760,7 @@ export function createInboundProvider(name: string, config: Record<string, unkno
     case "discord_bot": return new DiscordBotProvider(config);
     case "watched_folder": return new WatchedFolderProvider(config);
     case "github_webhook": return new GitHubWebhookProvider(config);
+    case "slack_events": return new SlackEventsProvider(config);
     // rest_api is handled by the coordinator directly (starts Fastify)
     default: return null;
   }
