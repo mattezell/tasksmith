@@ -445,7 +445,7 @@ Scaffold your own: `tasksmith plugin create my-thing`
 |----------|-------------|
 | `file_drop` | Always on. Watches `tasks/inbox/` for YAML/JSON files |
 | `mcp` | MCP server (stdio). Any MCP client can submit tasks |
-| `discord_bot` | `@tasksmith fix the auth bug in my-api` → parsed to task |
+| `discord_bot` | `@tasksmith fix the auth bug in my-api` → parsed to task. Guild + channel allowlists. |
 | `rest_api` | HTTP server on port 8420 (with optional auth + rate limiting) |
 | `github_webhook` | Receives GitHub webhook events — auto-creates tasks from labeled issues and `/tasksmith` comments |
 | `slack_events` | Slack Events API listener — responds to @mentions and channel messages with `/tasksmith` prefix |
@@ -962,7 +962,7 @@ TaskSmith executes AI-generated code on your machine. This is the entire point �
 
 **Git operations.** Worktree PR titles and commit messages include task content. Crafted prompts could inject unexpected content into your git history.
 
-**No authentication on Discord.** The Discord bot accepts commands from anyone in the configured channel. The REST API supports optional bearer token auth (see Configuration).
+**Discord bot scoping.** Configure `allowedGuildIds` and `allowedChannelIds` to restrict which servers and channels can submit tasks. If neither is set, the bot warns on startup and accepts commands from anywhere. The REST API supports bearer token auth + rate limiting (see Configuration).
 
 ### Mitigations (Current)
 
@@ -972,7 +972,7 @@ TaskSmith executes AI-generated code on your machine. This is the entire point �
 - **Input sanitization** strips shell metacharacters and validates task fields from external sources
 - **REST API auth** — bearer token + sliding-window rate limiting (configure `authToken` before network exposure)
 - REST API binds to localhost by default
-- Discord bot supports channel ID filtering
+- **Discord bot guild + channel allowlists** — restrict which servers and channels can submit tasks
 - Docker plugin provides optional container isolation
 - File drop requires local filesystem access
 
@@ -982,7 +982,7 @@ TaskSmith executes AI-generated code on your machine. This is the entire point �
 - **Use `autonomous` mode** for unattended operation, combined with Claude Code's native permission settings
 - **Only use `yolo` mode** in isolated environments (Docker, VM, disposable worktrees)
 - **Enable REST API auth** (`authToken` config) before exposing to the network
-- **Restrict Discord bot** to a private channel with trusted users only
+- **Restrict Discord bot** with `allowedGuildIds` and `allowedChannelIds` — don't leave it open to any server
 - **Use Docker isolation** for untrusted or high-risk tasks
 - **Review task files** before dropping them in inbox if they come from external sources
 

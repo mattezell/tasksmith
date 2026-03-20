@@ -266,14 +266,27 @@ export class FileDropProvider implements InboundCommsProvider {
 export class DiscordBotProvider implements InboundCommsProvider {
   readonly name = "discord_bot";
   private botToken: string;
-  private channelId: string;
+  private allowedChannelIds: Set<string>;
+  private allowedGuildIds: Set<string>;
   private prefix: string;
   private client: any = null;
 
   constructor(config: Record<string, unknown>) {
     this.botToken = (config.botToken as string) || "";
-    this.channelId = (config.channelId as string) || "";
     this.prefix = (config.commandPrefix as string) || "@tasksmith";
+
+    // Channel scoping: accept array or legacy single string
+    const channels = config.allowedChannelIds || config.channelIds || [];
+    const legacyChannel = config.channelId as string | undefined;
+    const channelList = Array.isArray(channels) ? channels.map(String) : [];
+    if (legacyChannel && !channelList.includes(legacyChannel)) channelList.push(legacyChannel);
+    this.allowedChannelIds = new Set(channelList.filter(Boolean));
+
+    // Guild scoping
+    const guilds = config.allowedGuildIds || config.guildIds || [];
+    this.allowedGuildIds = new Set(
+      (Array.isArray(guilds) ? guilds.map(String) : []).filter(Boolean)
+    );
   }
 
   async start(callback: InboundCallback): Promise<void> {
@@ -290,17 +303,30 @@ export class DiscordBotProvider implements InboundCommsProvider {
 
       this.client.once("clientReady", () => {
         console.log(`[discord_bot] Connected as ${this.client.user?.tag}`);
+        if (this.allowedGuildIds.size > 0) {
+          console.log(`[discord_bot] Guild allowlist: ${[...this.allowedGuildIds].join(", ")}`);
+        }
+        if (this.allowedChannelIds.size > 0) {
+          console.log(`[discord_bot] Channel allowlist: ${[...this.allowedChannelIds].join(", ")}`);
+        }
+        if (this.allowedGuildIds.size === 0 && this.allowedChannelIds.size === 0) {
+          console.warn("[discord_bot] WARNING: No guild or channel restrictions — bot accepts commands from any channel in any server");
+        }
       });
 
       this.client.on("messageCreate", async (message: any) => {
         if (message.author.bot) return;
 
-        let content = message.content.trim();
+        const guildId = message.guild ? String(message.guild.id) : "";
+        const channelId = String(message.channel.id);
 
-        // Filter by channel if configured
-        if (this.channelId && String(message.channel.id) !== this.channelId) {
-          if (!content.toLowerCase().startsWith(this.prefix.toLowerCase())) return;
-        }
+        // Guild allowlist: silently drop messages from unlisted guilds
+        if (this.allowedGuildIds.size > 0 && !this.allowedGuildIds.has(guildId)) return;
+
+        // Channel allowlist: silently drop messages from unlisted channels
+        if (this.allowedChannelIds.size > 0 && !this.allowedChannelIds.has(channelId)) return;
+
+        let content = message.content.trim();
 
         // Strip prefix
         if (content.toLowerCase().startsWith(this.prefix.toLowerCase())) {
@@ -314,11 +340,7 @@ export class DiscordBotProvider implements InboundCommsProvider {
           sender: String(message.author.tag),
           content,
           timestamp: new Date(),
-          metadata: {
-            channelId: String(message.channel.id),
-            messageId: String(message.id),
-            guildId: message.guild ? String(message.guild.id) : "",
-          },
+          metadata: { channelId, messageId: String(message.id), guildId },
         });
 
         // Acknowledge

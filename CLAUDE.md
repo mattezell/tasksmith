@@ -73,6 +73,5 @@ v1.0.0 — the "unattended ops" pivot. Stripped reimplemented CC features (workt
 
 ## Known Debt
 
-- Discord bot accepts commands from anyone in the configured channel.
 - Context window risk — no truncation strategy if compiled prompts exceed model limits.
 - No test suite beyond circuit breaker unit tests.

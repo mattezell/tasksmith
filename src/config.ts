@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
     ],
     inbound: [
       { provider: "file_drop", enabled: true, config: {} },
-      { provider: "discord_bot", enabled: false, config: { botToken: "", channelId: "", commandPrefix: "@tasksmith" } },
+      { provider: "discord_bot", enabled: false, config: { botToken: "", allowedGuildIds: [], allowedChannelIds: [], commandPrefix: "@tasksmith" } },
       { provider: "rest_api", enabled: false, config: { host: "0.0.0.0", port: 8420 } },
       { provider: "github_webhook", enabled: false, config: { port: 8421, secret: "", triggerLabels: ["tasksmith"] } },
       { provider: "slack_events", enabled: false, config: { port: 8422, signingSecret: "", channelIds: [] } },

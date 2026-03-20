@@ -12,7 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions CI** — `.github/workflows/ci.yml` runs `tsc` build and `vitest` tests on push/PR across Node 18, 20, and 22.
 - **Housekeeping script** — `scripts/housekeeping.sh` deletes stale remote branches and creates version tags for v0.8.0–v0.8.6.
 
+### Added
+- **Discord bot channel scoping** — guild + channel allowlist enforcement via `allowedGuildIds` and `allowedChannelIds` config arrays. Messages from unlisted guilds/channels are silently dropped. Warns on startup if no restrictions are configured. Backward-compatible with legacy `channelId` string config.
+
 ### Fixed
+- **Discord bot channel filter bypass** — the previous single `channelId` filter could be bypassed by prefixing messages with `@tasksmith` from any channel. Now uses strict allowlist enforcement.
 - **Plugin lifecycle hooks not firing** — 23 hook registrations across 8 bundled plugins were dead code. Only `onShutdown` worked; now all 8 hook events fire: `onStartup`, `beforeTaskExecute`, `afterTaskExecute`, `beforeContextAssembly`, `afterContextAssembly`, `onMemoryFlush`, `onInboundMessage`, `onShutdown`. Engine hooks use a `hookExecutor` callback bridge injected by the coordinator.
 - **Metrics/insights CLI commands dead code** — plugin-registered commands via `ctx.addCommand()` were never wired to Commander. Added `tasksmith metrics` and `tasksmith insights` as standalone top-level CLI commands.
 - **Workers --cleanup lost in rewrite** — `tasksmith workers --cleanup` and `--dry-run` options were implemented in v0.8.3 but lost during the v1.0.0 Phase 2 CLI rewrite. Restored.
