@@ -625,6 +625,213 @@ program
     console.log();
   });
 
+// ── METRICS ──────────────────────────────────────────────────────────
+
+program
+  .command("metrics")
+  .description("Show task execution metrics and cost tracking")
+  .option("--json", "Output raw JSON")
+  .option("--days <n>", "Show stats for last N days", "30")
+  .action(async (opts) => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const metricsPath = join(ws, "metrics.json");
+
+    if (!existsSync(metricsPath)) {
+      console.log(chalk.dim("\n  No metrics data found. Run some tasks first.\n"));
+      return;
+    }
+
+    const metrics = JSON.parse(readFileSync(metricsPath, "utf-8"));
+
+    if (opts.json) {
+      console.log(JSON.stringify(metrics, null, 2));
+      return;
+    }
+
+    const days = parseInt(opts.days || "30") || 30;
+    const cutoff = Date.now() - days * 86400000;
+    const recent = (metrics.records || []).filter((r: any) => new Date(r.completedAt).getTime() > cutoff);
+    const agg = metrics.aggregates || {};
+
+    console.log(chalk.bold(`\n  TaskSmith Metrics (last ${days} days)\n`));
+    console.log(`    Total tasks:     ${chalk.bold(String(agg.totalTasks || 0))}`);
+    const rate = agg.successRate || 0;
+    const rateColor = rate >= 80 ? chalk.green : rate >= 50 ? chalk.yellow : chalk.red;
+    console.log(`    Success rate:    ${rateColor(rate + "%")}`);
+    console.log(`    Avg iterations:  ${agg.avgIterations || 0}`);
+    console.log(`    Avg duration:    ${Math.round((agg.avgDurationMs || 0) / 1000)}s`);
+    console.log(`    Passed:          ${chalk.green(String(agg.successCount || 0))}`);
+    console.log(`    Failed:          ${chalk.red(String(agg.failCount || 0))}`);
+    if (agg.totalCostUsd > 0) {
+      console.log(`    Total cost:      ${chalk.yellow("$" + agg.totalCostUsd.toFixed(4))}`);
+      console.log(`    Avg cost/task:   ${chalk.yellow("$" + agg.avgCostUsd.toFixed(4))}`);
+    }
+
+    if (Object.keys(agg.byModel || {}).length > 0) {
+      console.log(chalk.bold(`\n  By Model\n`));
+      for (const [model, stats] of Object.entries(agg.byModel) as [string, any][]) {
+        const r = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0;
+        const cost = stats.totalCostUsd > 0 ? `  $${stats.totalCostUsd.toFixed(4)}` : "";
+        console.log(`    ${model.padEnd(16)} ${String(stats.total).padStart(4)} tasks  ${String(r).padStart(3)}% pass  ${stats.avgIterations} avg iters${cost}`);
+      }
+    }
+
+    if (Object.keys(agg.byTemplate || {}).length > 0) {
+      console.log(chalk.bold(`\n  By Template\n`));
+      for (const [tmpl, stats] of Object.entries(agg.byTemplate) as [string, any][]) {
+        const r = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0;
+        const cost = stats.totalCostUsd > 0 ? `  $${stats.totalCostUsd.toFixed(4)}` : "";
+        console.log(`    ${tmpl.padEnd(20)} ${String(stats.total).padStart(4)} tasks  ${String(r).padStart(3)}% pass  ${stats.avgIterations} avg iters${cost}`);
+      }
+    }
+
+    if (Object.keys(agg.byProject || {}).length > 0) {
+      console.log(chalk.bold(`\n  By Project\n`));
+      for (const [proj, stats] of Object.entries(agg.byProject) as [string, any][]) {
+        const r = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0;
+        const cost = stats.totalCostUsd > 0 ? `  $${stats.totalCostUsd.toFixed(4)}` : "";
+        console.log(`    ${proj.padEnd(20)} ${String(stats.total).padStart(4)} tasks  ${String(r).padStart(3)}% pass${cost}`);
+      }
+    }
+
+    // Smart routing savings
+    if (agg.totalCostUsd > 0 && Object.keys(agg.byModel || {}).length > 1) {
+      const costMultiplier: Record<string, number> = { haiku: 0.04, sonnet: 0.2, opus: 1.0 };
+      let hypothetical = 0;
+      for (const [model, stats] of Object.entries(agg.byModel) as [string, any][]) {
+        if (stats.totalCostUsd <= 0) continue;
+        const m = costMultiplier[model];
+        hypothetical += (m && m < 1) ? stats.totalCostUsd / m : stats.totalCostUsd;
+      }
+      const saved = hypothetical - agg.totalCostUsd;
+      if (saved > 0.001) {
+        const pct = Math.round((saved / hypothetical) * 100);
+        console.log(chalk.bold(`\n  Smart Routing Savings\n`));
+        console.log(`    Actual cost:     ${chalk.yellow("$" + agg.totalCostUsd.toFixed(4))}`);
+        console.log(`    All-opus cost:   ${chalk.dim("$" + hypothetical.toFixed(4))}`);
+        console.log(`    Saved:           ${chalk.green("$" + saved.toFixed(4))} (${pct}%)`);
+      }
+    }
+
+    // Recent failures
+    const failures = recent.filter((r: any) => !r.success).slice(-5);
+    if (failures.length > 0) {
+      console.log(chalk.bold(`\n  Recent Failures\n`));
+      for (const f of failures) {
+        console.log(`    ${chalk.red("✗")} ${f.taskId}  ${f.template}  ${f.model}  ${(f.error || "").slice(0, 60)}`);
+      }
+    }
+
+    console.log(chalk.dim(`\n  Data file: ${metricsPath}\n`));
+  });
+
+// ── INSIGHTS ─────────────────────────────────────────────────────────
+
+program
+  .command("insights")
+  .description("Analyze task history for patterns and actionable observations")
+  .option("--days <n>", "Analyze last N days", "30")
+  .option("--json", "Output raw JSON")
+  .action(async (opts) => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const metricsPath = join(ws, "metrics.json");
+
+    if (!existsSync(metricsPath)) {
+      console.log(chalk.dim("\n  No metrics data found. Run some tasks first.\n"));
+      return;
+    }
+
+    const metrics = JSON.parse(readFileSync(metricsPath, "utf-8"));
+    const days = parseInt(opts.days || "30") || 30;
+    const cutoff = Date.now() - days * 86400000;
+    const records = (metrics.records || []).filter((r: any) => new Date(r.completedAt).getTime() > cutoff);
+
+    if (records.length < 3) {
+      console.log(chalk.dim("\n  Not enough data to generate insights. Run more tasks!\n"));
+      return;
+    }
+
+    type Insight = { type: string; category: string; message: string };
+    const insights: Insight[] = [];
+
+    // Model performance comparison
+    const byModel: Record<string, any[]> = {};
+    for (const r of records) { (byModel[r.model] ||= []).push(r); }
+    if (Object.keys(byModel).length > 1) {
+      let bestModel = "", bestRate = -1, worstModel = "", worstRate = 101;
+      for (const [model, recs] of Object.entries(byModel)) {
+        if (recs.length < 2) continue;
+        const rate = recs.filter((r: any) => r.success).length / recs.length;
+        if (rate > bestRate) { bestRate = rate; bestModel = model; }
+        if (rate < worstRate) { worstRate = rate; worstModel = model; }
+      }
+      if (bestModel && worstModel && bestModel !== worstModel && bestRate - worstRate > 0.15) {
+        insights.push({ type: "neutral", category: "model", message: `${bestModel} succeeds ${Math.round(bestRate * 100)}% vs ${worstModel} at ${Math.round(worstRate * 100)}% — consider routing more work to ${bestModel}` });
+      }
+    }
+
+    // Template failure patterns
+    const byTemplate: Record<string, any[]> = {};
+    for (const r of records) { (byTemplate[r.template] ||= []).push(r); }
+    for (const [template, recs] of Object.entries(byTemplate)) {
+      if (recs.length < 3) continue;
+      const failRate = recs.filter((r: any) => !r.success).length / recs.length;
+      if (failRate > 0.5) {
+        insights.push({ type: "negative", category: "template", message: `"${template}" fails ${Math.round(failRate * 100)}% of the time (${recs.length} tasks) — review prompts or validation commands` });
+      } else if (failRate === 0 && recs.length >= 5) {
+        insights.push({ type: "positive", category: "template", message: `"${template}" has a perfect record: ${recs.length} tasks, 0 failures` });
+      }
+    }
+
+    // Iteration bloat
+    const avgIter = records.reduce((s: number, r: any) => s + r.iterations, 0) / records.length;
+    const highIter = records.filter((r: any) => r.iterations > avgIter * 2 && r.iterations > 3);
+    if (highIter.length > 0) {
+      const pct = Math.round((highIter.length / records.length) * 100);
+      insights.push({ type: "negative", category: "efficiency", message: `${highIter.length} tasks (${pct}%) needed >2x avg iterations — prompts may be ambiguous or validation too strict` });
+    }
+
+    // Cost outliers
+    const withCost = records.filter((r: any) => r.costUsd > 0);
+    if (withCost.length >= 5) {
+      const costs = withCost.map((r: any) => r.costUsd).sort((a: number, b: number) => a - b);
+      const median = costs[Math.floor(costs.length / 2)];
+      const expensive = withCost.filter((r: any) => r.costUsd > median * 3);
+      if (expensive.length > 0) {
+        const top = expensive.sort((a: any, b: any) => b.costUsd - a.costUsd)[0];
+        insights.push({ type: "negative", category: "cost", message: `${expensive.length} tasks cost >3x median ($${median.toFixed(4)}). Most expensive: ${top.taskId} at $${top.costUsd.toFixed(4)}` });
+      }
+    }
+
+    // Trend
+    if (records.length >= 10) {
+      const sorted = [...records].sort((a: any, b: any) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+      const half = Math.floor(sorted.length / 2);
+      const firstRate = sorted.slice(0, half).filter((r: any) => r.success).length / half;
+      const secondRate = sorted.slice(half).filter((r: any) => r.success).length / (sorted.length - half);
+      const delta = secondRate - firstRate;
+      if (Math.abs(delta) > 0.1) {
+        insights.push({ type: delta > 0 ? "positive" : "negative", category: "trend", message: `Success rate is ${delta > 0 ? "improving" : "declining"}: ${Math.round(firstRate * 100)}% → ${Math.round(secondRate * 100)}%` });
+      }
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(insights, null, 2));
+      return;
+    }
+
+    console.log(chalk.bold(`\n  TaskSmith Insights (last ${days} days)\n`));
+    if (insights.length === 0) {
+      console.log(chalk.dim("    No notable patterns detected.\n"));
+      return;
+    }
+    for (const insight of insights) {
+      const icon = insight.type === "positive" ? chalk.green("▲") : insight.type === "negative" ? chalk.red("▼") : chalk.yellow("●");
+      console.log(`    ${icon} ${insight.message}`);
+    }
+    console.log();
+  });
+
 // ── PARSE & RUN ────────────────────────────────────────────────────
 
 program.parse();
