@@ -67,6 +67,8 @@ function countPluginFiles() {
 
 function marketingBucket(lines) {
   if (lines < 5000) return "under 5,000";
+  if (lines < 6000) return "under 6,000";
+  if (lines < 8000) return "under 8,000";
   if (lines < 10000) return "under 10,000";
   if (lines < 25000) return "under 25,000";
   if (lines < 50000) return "under 50,000";
@@ -76,6 +78,8 @@ function marketingBucket(lines) {
 
 function marketingBucketShort(lines) {
   if (lines < 5000) return "<5k";
+  if (lines < 6000) return "<6k";
+  if (lines < 8000) return "<8k";
   if (lines < 10000) return "<10k";
   if (lines < 25000) return "<25k";
   if (lines < 50000) return "<50k";

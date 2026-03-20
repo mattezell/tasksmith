@@ -5,6 +5,22 @@ All notable changes to TaskSmith will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **CLAUDE.md** — project context file for Claude Code CLI sessions. Loaded automatically by Claude Code when working in the repo.
+- **GitHub Actions CI** — `.github/workflows/ci.yml` runs `tsc` build and `vitest` tests on push/PR across Node 18, 20, and 22.
+- **Housekeeping script** — `scripts/housekeeping.sh` deletes stale remote branches and creates version tags for v0.8.0–v0.8.6.
+
+### Fixed
+- **Stats script marketing buckets** — added finer thresholds (6k, 8k) between the 5k and 10k buckets. Core at 7,637 lines now correctly claims "under 8,000" instead of jumping to "under 10,000".
+- **Site version** — terminal mockup updated from v0.8.1 to v0.8.6.
+- **Site line counts** — OG meta, numbers section, and creator bio now reflect current "under 8,000" core line count.
+- **README source layout** — per-file line counts updated to match current reality (engine.ts grew from 750→1,086, mcp.ts from 488→743, etc.).
+- **README MCP section** — tools listing expanded from 8→14 tools, resources from 2→5 resource types (directives, templates, projects are dynamic).
+- **Site feature cards** — added Task DAGs, MCP Server, and Smart Model Routing cards (features shipped in v0.8.4 but missing from site).
+- **Site footer** — year updated to 2025–2026.
+
 ## [0.8.6] - 2026-02-23
 
 ### Added

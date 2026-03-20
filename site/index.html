@@ -6,7 +6,7 @@
 <title>TaskSmith — Agent Orchestration for Claude Code</title>
 <meta name="description" content="Turn Claude Code into a parallel task engine. Drop YAML files, get PRs back. Compiled prompts, auto-retry, memory, worktree isolation, notifications, 9 plugins.">
 <meta property="og:title" content="TaskSmith — Agent Orchestration for Claude Code">
-<meta property="og:description" content="Parallel task execution with git worktree isolation. Under 5,000 lines of core TypeScript. Zero bloat.">
+<meta property="og:description" content="Parallel task execution with git worktree isolation. Under 8,000 lines of core TypeScript. Zero bloat.">
 <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
@@ -53,7 +53,7 @@
     <div class="terminal">
       <div class="terminal-bar">
         <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
-        <span class="terminal-title">~/my-api — tasksmith v0.8.1</span>
+        <span class="terminal-title">~/my-api — tasksmith v0.8.6</span>
       </div>
       <div class="terminal-body">
         <div class="t-line" style="animation-delay:.6s"><span class="t-prompt">▸ </span><span class="t-cmd">tasksmith submit -t ralph-loop \</span></div>
@@ -112,7 +112,22 @@
       <p>Wrap every Claude Code invocation in process isolation — no Docker required. Filesystem allowlists block credential theft. Network allowlists stop exfiltration. macOS Seatbelt and Linux bubblewrap. Opt-in per task or globally.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-tag">07 // SCHEDULE</div>
+      <div class="feature-tag">07 // ORCHESTRATION</div>
+      <h3>Task DAGs</h3>
+      <p>Chain tasks with dependency workflows. <code>depends_on</code> links tasks in a directed acyclic graph — downstream tasks wait, failure propagates. Cycle detection built in.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">08 // PROTOCOL</div>
+      <h3>MCP Server</h3>
+      <p><code>tasksmith mcp</code> exposes 14 tools and 5 resource types over Model Context Protocol. Any MCP client — Claude Desktop, Claude Code, other agents — can submit tasks, check status, and search memory. Agents helping agents.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">09 // INTELLIGENCE</div>
+      <h3>Smart Model Routing</h3>
+      <p>Set <code>model: auto</code> and let TaskSmith pick. Template-based defaults, prompt complexity signals, automatic escalation to a stronger model on failure. Stop overpaying for simple tasks.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-tag">10 // SCHEDULE</div>
       <h3>Cron & Plugins</h3>
       <p>Scheduled tasks via cron. <strong>9 official plugins</strong> ship bundled — GitHub, Metrics, Docker, JIRA, Postgres, Proxmox, Cloudflare, Semantic Memory, Sandbox. Or build your own.</p>
     </div>
@@ -260,7 +275,7 @@
 <section class="creator">
   <div class="creator-label">SysOp</div>
   <h3>Matt</h3>
-  <p>Software architect from Birmingham, AL. Built TaskSmith because OpenClaw's 430k lines were too many and Claude Code's zero orchestration wasn't enough. Under 5,000 lines of core TypeScript — every module fits in your head. 9 bundled plugins and a full plugin system for everything else.</p>
+  <p>Software architect from Birmingham, AL. Built TaskSmith because OpenClaw's 430k lines were too many and Claude Code's zero orchestration wasn't enough. Under 8,000 lines of core TypeScript — every module fits in your head. 9 bundled plugins and a full plugin system for everything else.</p>
   <div class="creator-links">
     <a href="https://github.com/mattezell">
       <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -294,7 +309,7 @@
 
 <footer>
   <p>TaskSmith is open source software under the MIT license. Not affiliated with Anthropic.<br>
-  Forged with unreasonable enthusiasm by <a href="https://github.com/mattezell">Matt</a> · Birmingham, AL · 2025</p>
+  Forged with unreasonable enthusiasm by <a href="https://github.com/mattezell">Matt</a> · Birmingham, AL · 2025–2026</p>
 </footer>
 
 <script>

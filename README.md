@@ -4,7 +4,7 @@ Lightweight agent orchestration built on [Claude Code](https://docs.anthropic.co
 
 Drop a task file. Walk away. Come back to passing tests.
 
-TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Chain tasks with dependency DAGs. Expose everything via MCP so agents can submit tasks to other agents. Schedule recurring tasks with cron. Under 7,000 lines of core TypeScript. 9 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
+TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Chain tasks with dependency DAGs. Expose everything via MCP so agents can submit tasks to other agents. Schedule recurring tasks with cron. Under 8,000 lines of core TypeScript. 9 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
 
 ```bash
 npm install -g tasksmith-cli
@@ -730,17 +730,26 @@ Add to your MCP client config (e.g., `claude_desktop_config.json`):
 | `get_task_status` | Get details of a specific task by ID |
 | `list_tasks` | List tasks filtered by status (pending/active/completed/failed) |
 | `cancel_task` | Cancel a pending or active task |
+| `retry_task` | Retry a failed task (copies back to inbox with a new ID) |
 | `search_memory` | Search TaskSmith's memory for past results and learnings |
+| `store_memory` | Store a fact, decision, or learning in memory |
 | `list_templates` | Show available task templates |
 | `list_projects` | Show configured projects |
 | `queue_status` | System overview: queue counts, directives, memory providers |
+| `health_check` | System health and version info |
+| `submit_dag` | Submit a task DAG (dependency workflow) |
+| `dag_status` | Get status of a running DAG |
+| `list_dags` | List all tracked DAGs |
 
 ### Resources
 
-| Resource | URI | Description |
-|----------|-----|-------------|
+| Resource | URI Pattern | Description |
+|----------|-------------|-------------|
 | System Status | `tasksmith://status` | Queue counts, version, workspace path (JSON) |
 | Memory | `tasksmith://memory` | Current MEMORY.md hot memory contents |
+| Directives | `tasksmith://directives/{name}` | SOUL.md, USER.md, CONVENTIONS.md, etc. |
+| Templates | `tasksmith://templates/{name}` | Template PROMPT.md contents |
+| Projects | `tasksmith://projects/{name}` | Project CLAUDE.md and structure |
 
 Input from MCP clients is sanitized with the same security layer as REST API and Discord inputs (external trust level).
 
@@ -990,37 +999,38 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
+├── engine.ts            1086 lines   Task lifecycle, Ralph Loop, circuit breaker, smart model routing
 ├── cli.ts                802 lines   Commander CLI (21 commands)
-├── engine.ts             750 lines   Task lifecycle, Ralph Loop, model routing, rate limits
-├── plugins.ts            620 lines   Plugin loader, lifecycle hooks, scaffolding
-├── pool.ts               590 lines   Worker pool, concurrency, project-aware worktree isolation
+├── mcp.ts                743 lines   MCP server (stdio), 12 tools, 4 resources
+├── pool.ts               668 lines   Worker pool, concurrency, project-aware worktree isolation
+├── plugins.ts            620 lines   Plugin loader, lifecycle hooks, command wrappers, scaffolding
 ├── onboarding.ts         559 lines   10-step interactive setup wizard
-├── coordinator.ts        516 lines   Wires providers + engine + pool + plugins + DAG
-├── mcp.ts                488 lines   MCP server (stdio), 8 tools, 2 resources
-├── config.ts             427 lines   Workspace resolution, config layering, template chain
+├── coordinator.ts        538 lines   Wires providers + engine + pool + plugins + DAG
+├── config.ts             436 lines   Workspace resolution, config layering, template chain
 ├── dag.ts                417 lines   Task DAG: dependency resolution, cycle detection, failure propagation
-├── sanitize.ts           365 lines   Input sanitization: trust levels, allowlist validation
-├── types.ts              266 lines   Interfaces, provider contracts, permission types
+├── sanitize.ts           375 lines   Input sanitization: trust levels, allowlist validation
+├── types.ts              291 lines   Interfaces, provider contracts, permission types
 ├── scheduler.ts          237 lines   Cron-based task scheduling
 ├── api.ts                186 lines   REST API server
-├── index.ts               12 lines   Package exports
+├── index.ts               13 lines   Package exports
 ├── providers/
 │   ├── comms/            409 lines   6 outbound + 5 inbound providers
 │   └── memory/           241 lines   Markdown, JSONL, compressed archives
 └── plugins/bundled/
     ├── index.ts           92 lines   Lazy-load registry
-    ├── github.ts         240 lines   GitHub Issues/PR integration
-    ├── metrics.ts        296 lines   Execution analytics
-    ├── docker.ts         246 lines   Container isolation
-    ├── jira.ts           243 lines   JIRA ticket integration
-    ├── postgres.ts       229 lines   PostgreSQL task history
-    ├── proxmox.ts        295 lines   Proxmox VM provisioning
     ├── cloudflare.ts     487 lines   Cloudflare Pages deployments
     ├── semantic-memory   451 lines   Vector-based semantic search
+    ├── sandbox.ts        303 lines   OS-level sandbox isolation
+    ├── metrics.ts        296 lines   Execution analytics
+    ├── proxmox.ts        295 lines   Proxmox VM provisioning
+    ├── docker.ts         246 lines   Container isolation
+    ├── jira.ts           243 lines   JIRA ticket integration
+    ├── github.ts         240 lines   GitHub Issues/PR integration
+    └── postgres.ts       229 lines   PostgreSQL task history
     └── sandbox.ts        303 lines   OS-level sandbox isolation
 ```
 
-**Under 7,000 lines of core TypeScript** + 2,882 lines across 9 bundled plugins. Every module fits in your head.
+**Under 8,000 lines of core TypeScript** + 2,892 lines across 9 bundled plugins. Every module fits in your head.
 
 ### Design Principles
 
