@@ -86,6 +86,7 @@ program
   .option("-l, --list", "List all DAGs")
   .option("-s, --status <dagId>", "Show status of a specific DAG")
   .option("-f, --file <path>", "Submit a DAG file")
+  .option("-g, --graph <dagId>", "Output DAG as Mermaid flowchart")
   .action(async (opts: any) => {
     const ws = resolveWorkspace(program.opts().dir);
     const { DAGManager } = await import("./dag.js");
@@ -108,6 +109,16 @@ program
         const dest = join(inbox, `${result.dagId}.yaml`);
         writeFileSync(dest, yaml.dump(data));
         console.log(chalk.green(`  → Copied to ${dest}`));
+      }
+      return;
+    }
+
+    if (opts.graph) {
+      const mermaid = dagMgr.toMermaid(opts.graph);
+      if (mermaid) {
+        console.log(mermaid);
+      } else {
+        console.log(chalk.dim(`DAG '${opts.graph}' not found.`));
       }
       return;
     }
@@ -150,6 +161,7 @@ program
   .option("--model <model>", "Model (opus/sonnet)", "sonnet")
   .option("--priority <level>", "Priority (low/normal/high/urgent)", "normal")
   .option("--iterations <n>", "Max iterations", "5")
+  .option("--from-github-issue <number>", "Create task from a GitHub issue (requires gh CLI)")
   .option("--param <key=value>", "Task params (repeatable): --param validation_command=\"npm test\"", (val: string, acc: string[]) => { acc.push(val); return acc; }, [] as string[])
   .action(async (opts) => {
     const ws = resolveWorkspace(program.opts().dir);
@@ -165,6 +177,52 @@ program
       const dest = join(inbox, src.split("/").pop()!);
       writeFileSync(dest, readFileSync(src, "utf-8"));
       console.log(chalk.green("Submitted:"), dest);
+      return;
+    }
+
+    // Fetch from GitHub issue
+    if (opts.fromGithubIssue) {
+      const issueNum = opts.fromGithubIssue;
+      let issueJson: string;
+      try {
+        issueJson = execSync(`gh issue view ${issueNum} --json title,body,labels,assignees`, { encoding: "utf-8", timeout: 15000 });
+      } catch (e: any) {
+        console.error(chalk.red(`Failed to fetch GitHub issue #${issueNum}. Is gh CLI installed and authenticated?`));
+        console.error(chalk.dim(e.message || ""));
+        process.exit(1);
+      }
+
+      const issue = JSON.parse(issueJson);
+      const labels = (issue.labels || []).map((l: any) => l.name || l).join(", ");
+
+      const now = new Date().toISOString();
+      const taskId = `task-gh${issueNum}-${now.slice(0, 19).replace(/[T:]/g, "").replace(/-/g, "")}-${uuidv4().slice(0, 6)}`;
+
+      const taskData: Record<string, unknown> = {
+        id: taskId,
+        template: opts.template,
+        prompt: `GitHub Issue #${issueNum}: ${issue.title}\n\n${issue.body || "(no description)"}`,
+        project: opts.project,
+        model: opts.model,
+        priority: opts.priority,
+        max_iterations: parseInt(opts.iterations),
+        created_at: now,
+        params: {
+          github_issue: parseInt(issueNum),
+          ...(labels ? { labels } : {}),
+        },
+      };
+
+      const dest = join(inbox, `${taskId}.yaml`);
+      writeFileSync(dest, yaml.dump(taskData));
+
+      console.log(chalk.green(`\n  Task Created from GitHub Issue #${issueNum}`));
+      console.log(`  ID:       ${chalk.bold(taskId)}`);
+      console.log(`  Title:    ${issue.title}`);
+      console.log(`  Template: ${opts.template}`);
+      console.log(`  Model:    ${opts.model}`);
+      if (labels) console.log(`  Labels:   ${labels}`);
+      console.log();
       return;
     }
 

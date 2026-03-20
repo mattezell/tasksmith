@@ -32,7 +32,7 @@
  * Submit via inbox: Drop the file in tasks/inbox/
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import type { Task } from "./types.js";
@@ -320,6 +320,42 @@ export class DAGManager {
     return Array.from(this.dags.values());
   }
 
+  /**
+   * Render a DAG as a Mermaid flowchart string.
+   */
+  toMermaid(dagId: string): string | null {
+    const dag = this.dags.get(dagId);
+    if (!dag) return null;
+
+    const lines = ["graph TD"];
+    const statusStyle: Record<string, string> = {
+      completed: ":::done",
+      failed: ":::fail",
+      active: ":::active",
+      cancelled: ":::cancel",
+      pending: "",
+    };
+
+    for (const node of dag.nodes) {
+      const suffix = statusStyle[node.status] || "";
+      lines.push(`  ${node.taskId}["${node.taskId} (${node.status})"]${suffix}`);
+    }
+
+    for (const node of dag.nodes) {
+      for (const dep of node.dependsOn) {
+        lines.push(`  ${dep} --> ${node.taskId}`);
+      }
+    }
+
+    lines.push("");
+    lines.push("  classDef done fill:#2d6,stroke:#1a4,color:#fff");
+    lines.push("  classDef fail fill:#d33,stroke:#a11,color:#fff");
+    lines.push("  classDef active fill:#fa0,stroke:#c80,color:#fff");
+    lines.push("  classDef cancel fill:#999,stroke:#666,color:#fff");
+
+    return lines.join("\n");
+  }
+
   // ── Cycle Detection ────────────────────────────────────────────────
 
   private hasCycle(tasks: Record<string, any>[]): boolean {
@@ -401,7 +437,6 @@ export class DAGManager {
     if (!existsSync(dir)) return;
 
     try {
-      const { readdirSync } = require("node:fs");
       const files = readdirSync(dir).filter((f: string) => f.endsWith(".yaml"));
       for (const f of files) {
         try {

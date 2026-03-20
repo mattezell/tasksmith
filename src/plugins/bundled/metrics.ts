@@ -43,6 +43,7 @@ interface TaskRecord {
   startedAt: string;
   completedAt: string;
   durationMs: number;
+  costUsd?: number;
   error?: string;
 }
 
@@ -57,9 +58,11 @@ interface MetricsData {
     successRate: number;
     avgIterations: number;
     avgDurationMs: number;
-    byModel: Record<string, { total: number; success: number; avgIterations: number }>;
-    byTemplate: Record<string, { total: number; success: number; avgIterations: number }>;
-    byProject: Record<string, { total: number; success: number }>;
+    totalCostUsd: number;
+    avgCostUsd: number;
+    byModel: Record<string, { total: number; success: number; avgIterations: number; totalCostUsd: number }>;
+    byTemplate: Record<string, { total: number; success: number; avgIterations: number; totalCostUsd: number }>;
+    byProject: Record<string, { total: number; success: number; totalCostUsd: number }>;
   };
 }
 
@@ -82,6 +85,8 @@ function emptyMetrics(): MetricsData {
       successRate: 0,
       avgIterations: 0,
       avgDurationMs: 0,
+      totalCostUsd: 0,
+      avgCostUsd: 0,
       byModel: {},
       byTemplate: {},
       byProject: {},
@@ -126,47 +131,58 @@ function recompute(data: MetricsData, config: MetricsConfig): void {
   data.aggregates.avgIterations = Math.round((records.reduce((s, r) => s + r.iterations, 0) / total) * 10) / 10;
   data.aggregates.avgDurationMs = Math.round(records.reduce((s, r) => s + r.durationMs, 0) / total);
 
+  // Cost aggregation
+  const totalCost = records.reduce((s, r) => s + (r.costUsd || 0), 0);
+  data.aggregates.totalCostUsd = Math.round(totalCost * 10000) / 10000;
+  data.aggregates.avgCostUsd = Math.round((totalCost / total) * 10000) / 10000;
+
   // Model breakdown
   if (config.trackModels) {
-    const byModel: Record<string, { total: number; success: number; totalIter: number }> = {};
+    const byModel: Record<string, { total: number; success: number; totalIter: number; totalCost: number }> = {};
     for (const r of records) {
       const key = r.model || "unknown";
-      if (!byModel[key]) byModel[key] = { total: 0, success: 0, totalIter: 0 };
+      if (!byModel[key]) byModel[key] = { total: 0, success: 0, totalIter: 0, totalCost: 0 };
       byModel[key].total++;
       if (r.success) byModel[key].success++;
       byModel[key].totalIter += r.iterations;
+      byModel[key].totalCost += r.costUsd || 0;
     }
     data.aggregates.byModel = {};
     for (const [k, v] of Object.entries(byModel)) {
-      data.aggregates.byModel[k] = { total: v.total, success: v.success, avgIterations: Math.round((v.totalIter / v.total) * 10) / 10 };
+      data.aggregates.byModel[k] = { total: v.total, success: v.success, avgIterations: Math.round((v.totalIter / v.total) * 10) / 10, totalCostUsd: Math.round(v.totalCost * 10000) / 10000 };
     }
   }
 
   // Template breakdown
   if (config.trackTemplates) {
-    const byTemplate: Record<string, { total: number; success: number; totalIter: number }> = {};
+    const byTemplate: Record<string, { total: number; success: number; totalIter: number; totalCost: number }> = {};
     for (const r of records) {
       const key = r.template || "unknown";
-      if (!byTemplate[key]) byTemplate[key] = { total: 0, success: 0, totalIter: 0 };
+      if (!byTemplate[key]) byTemplate[key] = { total: 0, success: 0, totalIter: 0, totalCost: 0 };
       byTemplate[key].total++;
       if (r.success) byTemplate[key].success++;
       byTemplate[key].totalIter += r.iterations;
+      byTemplate[key].totalCost += r.costUsd || 0;
     }
     data.aggregates.byTemplate = {};
     for (const [k, v] of Object.entries(byTemplate)) {
-      data.aggregates.byTemplate[k] = { total: v.total, success: v.success, avgIterations: Math.round((v.totalIter / v.total) * 10) / 10 };
+      data.aggregates.byTemplate[k] = { total: v.total, success: v.success, avgIterations: Math.round((v.totalIter / v.total) * 10) / 10, totalCostUsd: Math.round(v.totalCost * 10000) / 10000 };
     }
   }
 
   // Project breakdown
-  const byProject: Record<string, { total: number; success: number }> = {};
+  const byProject: Record<string, { total: number; success: number; totalCost: number }> = {};
   for (const r of records) {
     const key = r.project || "(none)";
-    if (!byProject[key]) byProject[key] = { total: 0, success: 0 };
+    if (!byProject[key]) byProject[key] = { total: 0, success: 0, totalCost: 0 };
     byProject[key].total++;
     if (r.success) byProject[key].success++;
+    byProject[key].totalCost += r.costUsd || 0;
   }
-  data.aggregates.byProject = byProject;
+  data.aggregates.byProject = {};
+  for (const [k, v] of Object.entries(byProject)) {
+    data.aggregates.byProject[k] = { total: v.total, success: v.success, totalCostUsd: Math.round(v.totalCost * 10000) / 10000 };
+  }
 
   data.lastUpdated = new Date().toISOString();
 }
@@ -199,6 +215,10 @@ export default function metricsPlugin(ctx: PluginContext, options: Record<string
     taskStartTimes.delete(taskId);
 
     const now = Date.now();
+    // Extract cost from task diagnostics (set by engine's Ralph Loop)
+    const diag = (task as any).diagnostics as Record<string, any> | undefined;
+    const costUsd = diag?.total_cost_usd as number | undefined;
+
     const record: TaskRecord = {
       taskId,
       template: (task.template as string) || "unknown",
@@ -210,6 +230,10 @@ export default function metricsPlugin(ctx: PluginContext, options: Record<string
       completedAt: new Date(now).toISOString(),
       durationMs: now - startTime,
     };
+
+    if (costUsd != null && costUsd > 0) {
+      record.costUsd = Math.round(costUsd * 10000) / 10000;
+    }
 
     if (!ok && task.error) {
       record.error = (task.error as string).slice(0, 500);
@@ -252,12 +276,17 @@ export default function metricsPlugin(ctx: PluginContext, options: Record<string
       console.log(`    Avg duration:    ${Math.round(agg.avgDurationMs / 1000)}s`);
       console.log(`    Passed:          ${chalk.green(String(agg.successCount))}`);
       console.log(`    Failed:          ${chalk.red(String(agg.failCount))}`);
+      if (agg.totalCostUsd > 0) {
+        console.log(`    Total cost:      ${chalk.yellow("$" + agg.totalCostUsd.toFixed(4))}`);
+        console.log(`    Avg cost/task:   ${chalk.yellow("$" + agg.avgCostUsd.toFixed(4))}`);
+      }
 
       if (Object.keys(agg.byModel).length > 0) {
         console.log(chalk.bold(`\n  By Model\n`));
         for (const [model, stats] of Object.entries(agg.byModel)) {
           const rate = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0;
-          console.log(`    ${model.padEnd(16)} ${String(stats.total).padStart(4)} tasks  ${String(rate).padStart(3)}% pass  ${stats.avgIterations} avg iters`);
+          const cost = stats.totalCostUsd > 0 ? `  $${stats.totalCostUsd.toFixed(4)}` : "";
+          console.log(`    ${model.padEnd(16)} ${String(stats.total).padStart(4)} tasks  ${String(rate).padStart(3)}% pass  ${stats.avgIterations} avg iters${cost}`);
         }
       }
 
@@ -265,7 +294,8 @@ export default function metricsPlugin(ctx: PluginContext, options: Record<string
         console.log(chalk.bold(`\n  By Template\n`));
         for (const [tmpl, stats] of Object.entries(agg.byTemplate)) {
           const rate = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0;
-          console.log(`    ${tmpl.padEnd(20)} ${String(stats.total).padStart(4)} tasks  ${String(rate).padStart(3)}% pass  ${stats.avgIterations} avg iters`);
+          const cost = stats.totalCostUsd > 0 ? `  $${stats.totalCostUsd.toFixed(4)}` : "";
+          console.log(`    ${tmpl.padEnd(20)} ${String(stats.total).padStart(4)} tasks  ${String(rate).padStart(3)}% pass  ${stats.avgIterations} avg iters${cost}`);
         }
       }
 
@@ -273,7 +303,8 @@ export default function metricsPlugin(ctx: PluginContext, options: Record<string
         console.log(chalk.bold(`\n  By Project\n`));
         for (const [proj, stats] of Object.entries(agg.byProject)) {
           const rate = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0;
-          console.log(`    ${proj.padEnd(20)} ${String(stats.total).padStart(4)} tasks  ${String(rate).padStart(3)}% pass`);
+          const cost = stats.totalCostUsd > 0 ? `  $${stats.totalCostUsd.toFixed(4)}` : "";
+          console.log(`    ${proj.padEnd(20)} ${String(stats.total).padStart(4)} tasks  ${String(rate).padStart(3)}% pass${cost}`);
         }
       }
 

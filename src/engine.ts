@@ -883,11 +883,34 @@ export class TaskEngine {
 
   private async notify(task: Task): Promise<void> {
     const ok = task.status === "completed";
+    const diag = (task as any).diagnostics as Record<string, any> | undefined;
+
+    // Build a rich notification body with cost, diagnostics, and ejection details
+    const lines: string[] = [];
+    lines.push(ok ? task.result : (task.error?.slice(0, 500) || "Unknown error"));
+    lines.push(`Project: ${task.project || "N/A"} | Model: ${task.model} | Iterations: ${task.iterations}`);
+
+    if (diag) {
+      if (diag.total_cost_usd > 0) {
+        lines.push(`Cost: $${diag.total_cost_usd.toFixed(4)}`);
+      }
+      if (!ok && diag.failure_class && diag.failure_class !== "NONE") {
+        lines.push(`Failure class: ${diag.failure_class}`);
+      }
+      if (diag.ejected) {
+        lines.push(`Circuit breaker: ${diag.ejection_rule} (iteration ${diag.ejection_iteration})`);
+      }
+      if (diag.contradiction_detected) {
+        lines.push(`Warning: Agent claimed success but validation disagreed`);
+      }
+    }
+
     const n: Notification = {
       title: `${ok ? "✅" : "❌"} ${task.template}: ${ok ? "Done" : "Failed"}`,
-      body: `${ok ? task.result : task.error?.slice(0, 500)}\nProject: ${task.project || "N/A"} | Iterations: ${task.iterations}`,
+      body: lines.join("\n"),
       priority: (ok ? "normal" : "high") as Priority,
       taskId: task.id,
+      metadata: diag ? { ...diag } : undefined,
     };
     for (const p of this.outbound) {
       try { await p.send(n); } catch (e) { console.error(`[notify:${p.name}]`, e); }
