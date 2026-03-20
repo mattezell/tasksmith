@@ -308,6 +308,38 @@ export default function metricsPlugin(ctx: PluginContext, options: Record<string
         }
       }
 
+      // Smart routing savings estimate
+      // Compare actual cost vs. hypothetical "everything on opus" cost
+      if (agg.totalCostUsd > 0 && Object.keys(agg.byModel).length > 1) {
+        // Approximate cost multipliers relative to opus (opus = 1x)
+        const costMultiplier: Record<string, number> = {
+          haiku: 0.04,   // ~25x cheaper than opus
+          sonnet: 0.2,   // ~5x cheaper than opus
+          opus: 1.0,
+        };
+
+        let hypotheticalOpusCost = 0;
+        for (const [model, stats] of Object.entries(agg.byModel)) {
+          if (stats.totalCostUsd <= 0) continue;
+          const multiplier = costMultiplier[model];
+          if (multiplier && multiplier < 1) {
+            // Scale up: if this cost X on sonnet, it would cost X/0.2 on opus
+            hypotheticalOpusCost += stats.totalCostUsd / multiplier;
+          } else {
+            hypotheticalOpusCost += stats.totalCostUsd;
+          }
+        }
+
+        const saved = hypotheticalOpusCost - agg.totalCostUsd;
+        if (saved > 0.001) {
+          const pct = Math.round((saved / hypotheticalOpusCost) * 100);
+          console.log(chalk.bold(`\n  Smart Routing Savings\n`));
+          console.log(`    Actual cost:     ${chalk.yellow("$" + agg.totalCostUsd.toFixed(4))}`);
+          console.log(`    All-opus cost:   ${chalk.dim("$" + hypotheticalOpusCost.toFixed(4))}`);
+          console.log(`    Saved:           ${chalk.green("$" + saved.toFixed(4))} (${pct}%)`);
+        }
+      }
+
       // Recent failures
       const failures = recent.filter(r => !r.success).slice(-5);
       if (failures.length > 0) {
