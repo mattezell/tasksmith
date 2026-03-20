@@ -15,9 +15,8 @@
  * Plugin authoring (minimum viable plugin):
  *
  *   // tasksmith-plugin-proxmox/index.js
- *   export default function proxmoxPlugin(forge, options) {
- *     forge.addProvider("outbound", new ProxmoxNotifier(options));
- *     forge.addTemplate("proxmox-provision", "./templates/provision");
+ *   export default function proxmoxPlugin(ctx, options) {
+ *     ctx.addOutboundProvider(new ProxmoxNotifier(options));
  *   }
  *
  * Plugin package.json:
@@ -43,7 +42,7 @@
  *       enabled: true
  *       config:
  *         host: "https://pve.lan:8006"
- *         tokenId: "claude@pve!forge"
+ *         tokenId: "claude@pve!tasksmith"
  *         tokenSecret: "xxx"
  *
  * Or simply:
@@ -59,7 +58,6 @@ import { createRequire } from "node:module";
 import chalk from "chalk";
 import type {
   OutboundCommsProvider, InboundCommsProvider, MemoryProvider,
-  InboundCallback, Notification, MemoryEntry, MemorySearchResult, Task,
 } from "./types.js";
 
 // =============================================================================
@@ -89,15 +87,6 @@ export interface PluginContext {
   /** Register a hook into the task lifecycle */
   addHook(event: PluginHookEvent, handler: PluginHook): void;
 
-  /**
-   * Register a command wrapper — called by the engine before spawning Claude Code.
-   * The handler receives the full command string and must return the (possibly
-   * wrapped) command. Used by the sandbox plugin to prepend `srt` invocation.
-   * Multiple wrappers compose left-to-right. Non-breaking: plugins without this
-   * registration are completely unaffected.
-   */
-  addCommandWrapper(handler: CommandWrapperHook): void;
-
   /** Access the workspace directory */
   readonly workspace: string;
 
@@ -126,13 +115,6 @@ export type PluginHookEvent =
   | "onShutdown";         // When the engine shuts down
 
 export type PluginHook = (data: Record<string, unknown>) => void | Promise<void> | Record<string, unknown> | Promise<Record<string, unknown>>;
-
-/**
- * Command wrapper hook — registered via ctx.addCommandWrapper().
- * Receives the full claude CLI command string and the task; returns the wrapped command.
- * Multiple wrappers compose left-to-right (each wraps the output of the previous).
- */
-export type CommandWrapperHook = (command: string, task: Task) => string | Promise<string>;
 
 export interface PluginCommandHandler {
   description: string;
@@ -173,7 +155,6 @@ interface LoadedPlugin {
 export class PluginManager {
   private plugins: Map<string, LoadedPlugin> = new Map();
   private hooks: Map<PluginHookEvent, Array<{ pluginName: string; handler: PluginHook }>> = new Map();
-  private commandWrappers: Array<{ pluginName: string; handler: CommandWrapperHook }> = [];
   private templates: Map<string, string> = new Map(); // name → dir
   private commands: Map<string, { pluginName: string; handler: PluginCommandHandler }> = new Map();
   private additionalOutbound: OutboundCommsProvider[] = [];
@@ -457,9 +438,6 @@ export class PluginManager {
         if (!self.hooks.has(event)) self.hooks.set(event, []);
         self.hooks.get(event)!.push({ pluginName, handler });
       },
-      addCommandWrapper(handler: CommandWrapperHook) {
-        self.commandWrappers.push({ pluginName, handler });
-      },
 
       log: {
         info: (msg: string) => console.log(`  [${chalk.cyan(pluginName)}] ${msg}`),
@@ -477,23 +455,6 @@ export class PluginManager {
   getTemplates(): Map<string, string> { return new Map(this.templates); }
   getCommands(): Map<string, { pluginName: string; handler: PluginCommandHandler }> { return new Map(this.commands); }
   getLoadedPlugins(): string[] { return [...this.plugins.keys()]; }
-  getCommandWrappers(): Array<{ pluginName: string; handler: CommandWrapperHook }> { return [...this.commandWrappers]; }
-
-  /**
-   * Run a command string through all registered command wrappers.
-   * Left-to-right composition. No-op if no wrappers registered.
-   */
-  async applyCommandWrappers(command: string, task: Task): Promise<string> {
-    let current = command;
-    for (const { pluginName, handler } of this.commandWrappers) {
-      try {
-        current = await handler(current, task);
-      } catch (e: any) {
-        console.error(`[commandWrapper] ${pluginName} error: ${e.message}`);
-      }
-    }
-    return current;
-  }
 
   /**
    * Execute all hooks for a given event.
@@ -526,7 +487,6 @@ export function scaffoldPlugin(name: string, targetDir: string): void {
   const dir = join(targetDir, pluginName);
 
   mkdirSync(dir, { recursive: true });
-  mkdirSync(join(dir, "templates", `${shortName}-default`), { recursive: true });
 
   // package.json
   writeFileSync(join(dir, "package.json"), JSON.stringify({
@@ -537,9 +497,7 @@ export function scaffoldPlugin(name: string, targetDir: string): void {
     main: "index.js",
     keywords: ["tasksmith-plugin", shortName],
     tasksmith: {
-      provides: {
-        templates: [`${shortName}-default`],
-      },
+      provides: {},
       configDefaults: {},
     },
     peerDependencies: {
@@ -554,28 +512,17 @@ export function scaffoldPlugin(name: string, targetDir: string): void {
  * @param {import('tasksmith').PluginContext} ctx
  * @param {Record<string, unknown>} options
  */
-export default function ${camelCase(shortName)}Plugin(forge, options) {
-  forge.log.info("${shortName} plugin loaded");
-
-  // Register templates
-  forge.addTemplate("${shortName}-default", new URL("./templates/${shortName}-default", import.meta.url).pathname);
+export default function ${camelCase(shortName)}Plugin(ctx, options) {
+  ctx.log.info("${shortName} plugin loaded");
 
   // Register hooks
-  forge.addHook("onStartup", async () => {
-    forge.log.info("${shortName} ready");
+  ctx.addHook("onStartup", async () => {
+    ctx.log.info("${shortName} ready");
   });
 
   // Example: register a provider
-  // forge.addOutboundProvider(new MyProvider(options));
+  // ctx.addOutboundProvider(new MyProvider(options));
 }
-`);
-
-  // Template PROMPT.md
-  writeFileSync(join(dir, "templates", `${shortName}-default`, "PROMPT.md"), `# ${shortName}
-
-{{prompt}}
-
-<!-- Add your template instructions here -->
 `);
 
   // README
@@ -610,9 +557,8 @@ tasksmith submit -t ${shortName}-default -p "your prompt here"
   console.log(`  Next steps:`);
   console.log(`    1. cd ${dir}`);
   console.log(`    2. Edit index.js to add your logic`);
-  console.log(`    3. Edit templates/${shortName}-default/PROMPT.md`);
-  console.log(`    4. npm link (to test locally)`);
-  console.log(`    5. npm publish (to share)\n`);
+  console.log(`    3. npm link (to test locally)`);
+  console.log(`    4. npm publish (to share)\n`);
 }
 
 function camelCase(str: string): string {

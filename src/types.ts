@@ -134,87 +134,10 @@ export interface FileSyncProvider {
 }
 
 // =============================================================================
-// SANDBOX CONFIG
-// =============================================================================
-
-/**
- * Configuration for the sandbox plugin.
- * Surfaces through config layering: global → project-local → task params.
- *
- * Per-task overrides via task.params:
- *   sandbox: true | false    — opt this task in/out regardless of plugin default
- *   sandbox_domains: string[] — additional domains for this task only
- */
-export interface SandboxConfig {
-  /**
-   * Sandbox tasks by default. When false (recommended), tasks must opt in
-   * via params.sandbox: true. Default: false.
-   */
-  enabled?: boolean;
-
-  /**
-   * Additional domains Claude Code is allowed to reach.
-   * Merged with the built-in allowlist (Anthropic API, npm, pip, GitHub).
-   * Wildcards supported: "*.example.com"
-   */
-  allowedDomains?: string[];
-
-  /**
-   * Domains explicitly blocked even if they appear in allowedDomains.
-   */
-  deniedDomains?: string[];
-
-  /**
-   * Additional filesystem paths the sandboxed process may write to,
-   * beyond cwd and /tmp (always included).
-   */
-  allowWrite?: string[];
-
-  /**
-   * Additional paths blocked from reading.
-   * ~/.ssh, ~/.aws, ~/.config/gcloud, ~/.gnupg, ~/.netrc are always blocked.
-   */
-  denyRead?: string[];
-
-  /**
-   * Additional paths blocked from writing.
-   * .env, .env.*, shell config files are always blocked.
-   */
-  denyWrite?: string[];
-
-  /**
-   * When false (strongly recommended): Claude Code's dangerouslyDisableSandbox
-   * escape hatch is completely disabled. Violations fail hard.
-   * When true: Claude Code can self-authorize bypassing sandbox restrictions.
-   * Default: false (escape hatch locked).
-   */
-  allowUnsandboxedCommands?: boolean;
-
-  /**
-   * Write sandbox violation attempts to task output and memory. Default: true.
-   */
-  logViolations?: boolean;
-}
-
-// =============================================================================
 // CONFIG TYPES
 // =============================================================================
 
 export type PermissionMode = "supervised" | "autonomous" | "yolo";
-
-export interface PermissionsConfig {
-  allow: string[];   // --allowedTools rules (e.g. "Bash(npm *)", "Edit")
-  deny: string[];    // --disallowedTools rules (e.g. "Bash(rm -rf *)", "Bash(sudo *)")
-}
-
-export interface WorktreeSetupConfig {
-  /** Dirs to copy from main repo to worktree (e.g. ["node_modules", ".next"]) */
-  copyDirs?: string[];
-  /** Commands to run in the worktree after copy (e.g. ["npm ci --prefer-offline"]) */
-  commands?: string[];
-  /** Timeout per setup command in ms (default: 120000) */
-  timeoutMs?: number;
-}
 
 export interface CircuitBreakerConfig {
   enabled: boolean;
@@ -233,16 +156,6 @@ export interface CircuitBreakerConfig {
 export interface EngineConfig {
   concurrency: number;
   permissionMode: PermissionMode;
-  permissions: PermissionsConfig;
-  worktree: {
-    enabled: boolean;
-    strategy: string;
-    baseBranch: string;
-    cleanupOnSuccess?: boolean;
-    cleanupOnFailure?: boolean;
-    prLabels?: string[];
-    setup?: WorktreeSetupConfig;
-  };
 }
 
 export interface ProviderEntry {
@@ -253,7 +166,6 @@ export interface ProviderEntry {
 
 export interface WorkspaceConfig {
   projectsDir: string;      // where projects live (default: <workspace>/projects)
-  templatesDir: string;     // additional template search path
   globalConfigDir: string;  // override global config location (default: ~/.tasksmith)
 }
 

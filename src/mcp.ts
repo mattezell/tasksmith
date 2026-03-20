@@ -7,15 +7,14 @@
  *
  * Transport: stdio (MCP clients launch this as a subprocess).
  *
- * Tools (14):
+ * Tools (13):
  *   submit_task, get_task_status, list_tasks, cancel_task, retry_task,
- *   search_memory, store_memory, list_templates, list_projects,
+ *   search_memory, store_memory, list_projects,
  *   queue_status, health_check, submit_dag, dag_status, list_dags
  *
- * Resources (6):
+ * Resources (5):
  *   tasksmith://status, tasksmith://memory,
- *   tasksmith://directives/{name}, tasksmith://templates/{name},
- *   tasksmith://projects/{name}
+ *   tasksmith://directives/{name}, tasksmith://projects/{name}
  *
  * Usage:
  *   tasksmith mcp                   # start MCP server on stdio
@@ -43,7 +42,6 @@ import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 import {
   resolveWorkspace, loadConfig, scaffoldWorkspace, isTaskFile,
-  listTemplates, resolveTemplate,
 } from "./config.js";
 import { sanitizeTask } from "./sanitize.js";
 import type { TaskSmithConfig, MemoryEntry } from "./types.js";
@@ -387,23 +385,6 @@ export async function startMCPServer(workspaceOrOptions?: string | MCPServerOpti
     },
   );
 
-  // ── Tool: list_templates ───────────────────────────────────────────
-
-  server.tool(
-    "list_templates",
-    "List all available task templates with their sources. Use template names when submitting tasks.",
-    {},
-    async () => {
-      const templates = listTemplates(workspace, config);
-      if (templates.length === 0) {
-        return { content: [{ type: "text" as const, text: "No templates found." }] };
-      }
-
-      const lines = templates.map(t => `${t.name} (${t.source})`);
-      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-    },
-  );
-
   // ── Tool: list_projects ────────────────────────────────────────────
 
   server.tool(
@@ -663,30 +644,6 @@ export async function startMCPServer(workspaceOrOptions?: string | MCPServerOpti
         const content = existsSync(fp)
           ? readFileSync(fp, "utf-8")
           : `No ${file} found.`;
-
-        return {
-          contents: [{
-            uri: uri.href,
-            text: content,
-            mimeType: "text/markdown",
-          }],
-        };
-      },
-    );
-  }
-
-  // ── Resources: templates (PROMPT.md content) ───────────────────────
-
-  const availableTemplates = listTemplates(workspace, config);
-  for (const tmpl of availableTemplates) {
-    server.resource(
-      `template-${tmpl.name}`,
-      `tasksmith://templates/${tmpl.name}`,
-      async (uri) => {
-        const promptFile = join(tmpl.path, "PROMPT.md");
-        const content = existsSync(promptFile)
-          ? readFileSync(promptFile, "utf-8")
-          : `No PROMPT.md found for template '${tmpl.name}'.`;
 
         return {
           contents: [{

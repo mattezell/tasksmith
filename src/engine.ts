@@ -19,8 +19,7 @@ import type {
   CircuitBreakerConfig,
 } from "./types.js";
 import type { MarkdownMemoryProvider } from "./providers/memory/providers.js";
-import type { PluginManager } from "./plugins.js";
-import { resolveTemplate, isTaskFile, parseTaskFile } from "./config.js";
+import { isTaskFile, parseTaskFile } from "./config.js";
 import type { SessionArchiver } from "./providers/memory/providers.js";
 
 /** Parsed fields from Claude Code's --output-format json response. */
@@ -272,12 +271,6 @@ export class TaskEngine {
   hotMemory: MarkdownMemoryProvider | null = null;
   archiver: SessionArchiver | null = null;
 
-  /**
-   * Injected by coordinator after plugins are activated.
-   * Used to run command wrappers (e.g. sandbox plugin) before spawning claude.
-   */
-  pluginManager: PluginManager | null = null;
-
   private processing = new Set<string>();
 
   constructor(workspace: string, config: Record<string, any>) {
@@ -344,21 +337,7 @@ export class TaskEngine {
       }
     }
 
-    // Template prompt (searches project-local, workspace, global, built-in)
-    const templateDir = resolveTemplate(task.template, this.workspace, this.config as any);
-
-    if (templateDir) {
-      const promptFile = join(templateDir, "PROMPT.md");
-      let tp = readFileSync(promptFile, "utf-8");
-      tp = tp.replace(/\{\{prompt\}\}/g, task.prompt);
-      tp = tp.replace(/\{\{project\}\}/g, task.project);
-      for (const [k, v] of Object.entries(task.params)) {
-        tp = tp.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), String(v));
-      }
-      parts.push(tp);
-    } else {
-      parts.push(task.prompt);
-    }
+    parts.push(task.prompt);
 
     return parts.join("\n\n");
   }
@@ -372,24 +351,12 @@ export class TaskEngine {
 
     const args = ["-p", prompt, "--model", task.model, "--output-format", "json"];
 
-    // Resolve permission mode: task-level override > engine config > default
+    // Pass permission mode as a native Claude Code flag
     const mode = (task.params.permission_mode as string) || engineCfg.permissionMode || "supervised";
-
     if (mode === "yolo") {
       args.push("--dangerously-skip-permissions");
-      // --disallowedTools still works in bypass mode
-      const denyList = this.buildDenyList(engineCfg, task);
-      for (const t of denyList) args.push("--disallowedTools", t);
     } else if (mode === "autonomous") {
       args.push("--permission-mode", "acceptEdits");
-      const allowList = this.buildAllowList(engineCfg, task);
-      for (const t of allowList) args.push("--allowedTools", t);
-      const denyList = this.buildDenyList(engineCfg, task);
-      for (const t of denyList) args.push("--disallowedTools", t);
-    } else {
-      // supervised: legacy behavior — use defaultAllowedTools from claude_code provider config
-      const tools: string[] = ccCfg.defaultAllowedTools || ["Write", "Read", "Edit", "Bash", "Task"];
-      for (const t of tools) args.push("--allowedTools", t);
     }
 
     const dd = join(this.workspace, "directives");
@@ -409,37 +376,17 @@ export class TaskEngine {
 
     const timeout = (this.defaults.timeoutMinutes || 30) * 60 * 1000;
 
-    // Run through plugin command wrappers (e.g. sandbox plugin prepends `srt`).
-    // Only use shell: true when a wrapper actually transformed the command —
-    // otherwise use array-style spawn to avoid shell metacharacter interpretation
-    // of prompt content.
-    let wrappedCommand: string | null = null;
-    if (this.pluginManager) {
-      const baseCommand = ["claude", ...args].join(" ");
-      const transformed = await this.pluginManager.applyCommandWrappers(baseCommand, task);
-      if (transformed !== baseCommand) wrappedCommand = transformed;
-    }
-
     console.log(`[engine] CC invoke: mode=${mode} model=${task.model} project=${task.project || "none"}`);
 
     const spawnCwd = cwd && existsSync(cwd) ? cwd : undefined;
 
-    // Use async spawn to avoid blocking the event loop.
-    // spawnSync blocks the entire Node.js process, which prevents the
-    // scan interval, file watchers, and other async tasks from running.
-    // With async spawn, multiple Claude invocations can run concurrently.
     return new Promise((resolve) => {
       let stdout = "";
       let stderr = "";
       let timedOut = false;
 
-      const cmd = wrappedCommand || "claude";
-      const cmdArgs = wrappedCommand ? [] : args;
-      const useShell = Boolean(wrappedCommand);
-
-      const child = spawn(cmd, cmdArgs, {
+      const child = spawn("claude", args, {
         cwd: spawnCwd,
-        shell: useShell,
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, CLAUDECODE: undefined },
       });
@@ -524,31 +471,6 @@ export class TaskEngine {
     }
 
     return parsed;
-  }
-
-  // ── Permission List Builders ───────────────────────────────────────
-
-  private buildAllowList(engineCfg: Record<string, any>, task: Task): string[] {
-    const base: string[] = engineCfg.permissions?.allow || [];
-    const taskAllow: string[] = (task.params.allowed_tools as string[]) || [];
-
-    // Auto-allow the validation command if one is set
-    const valCmd = task.params.validation_command as string | undefined;
-    const valAllow: string[] = [];
-    if (valCmd) {
-      // Extract the base command (first word) and allow it with wildcard
-      const baseCmd = valCmd.trim().split(/\s+/)[0];
-      valAllow.push(`Bash(${baseCmd} *)`);
-    }
-
-    // Deduplicate
-    return [...new Set([...base, ...taskAllow, ...valAllow])];
-  }
-
-  private buildDenyList(engineCfg: Record<string, any>, task: Task): string[] {
-    const base: string[] = engineCfg.permissions?.deny || [];
-    const taskDeny: string[] = (task.params.disallowed_tools as string[]) || [];
-    return [...new Set([...base, ...taskDeny])];
   }
 
   // ── Validation ─────────────────────────────────────────────────────

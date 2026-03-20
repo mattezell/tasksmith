@@ -377,7 +377,7 @@ tasksmith submit -t project-init -p "CLI tool for converting CSV to JSON" \
 **Chat:**
 
 ```
-@forge create a new TypeScript Express API with auth and tests in my-new-api
+@tasksmith create a new TypeScript Express API with auth and tests in my-new-api
   → template: project-init, project: my-new-api
 ```
 
@@ -500,7 +500,7 @@ Scaffold your own: `tasksmith plugin create my-thing`
 |----------|-------------|
 | `file_drop` | Always on. Watches `tasks/inbox/` for YAML/JSON files |
 | `mcp` | MCP server (stdio). Any MCP client can submit tasks |
-| `discord_bot` | `@forge fix the auth bug in my-api` → parsed to task |
+| `discord_bot` | `@tasksmith fix the auth bug in my-api` → parsed to task |
 | `rest_api` | HTTP server on port 8420 |
 | `watched_folder` | Watch any directory for task files |
 
@@ -508,19 +508,19 @@ The Discord bot parses natural language, structured YAML, and JSON:
 
 ```
 # Natural language with auto-detection
-@forge fix the login timeout bug in my-api
+@tasksmith fix the login timeout bug in my-api
   → template: bug-hunt, project: my-api
 
-@forge urgent review the payment module with opus
+@tasksmith urgent review the payment module with opus
   → template: code-review, priority: urgent, model: opus
 
 # Natural language with params
-@forge fix the auth bug, validate with npm test in my-api
+@tasksmith fix the auth bug, validate with npm test in my-api
   → template: bug-hunt, project: my-api
   → params: { validation_command: "npm test" }
 
 # Paste YAML or JSON for full control
-@forge
+@tasksmith
 template: ralph-loop
 prompt: "Refactor the auth module"
 project: my-api
@@ -659,17 +659,17 @@ The bot extracts params from natural language in three ways:
 
 ```
 # Explicit key="value" (quoted)
-@forge fix the auth bug validation_command="npm test" in my-api
+@tasksmith fix the auth bug validation_command="npm test" in my-api
 
 # Explicit key=value (unquoted, single-word values)
-@forge deploy the site cf_deploy=true
+@tasksmith deploy the site cf_deploy=true
 
 # Natural language validation
-@forge fix the login bug, validate with npm run test:auth in my-api
+@tasksmith fix the login bug, validate with npm run test:auth in my-api
   → params: { validation_command: "npm run test:auth" }
 
 # All NL features combine with template/project/priority detection
-@forge urgent fix the race condition, test with pytest in payment-service
+@tasksmith urgent fix the race condition, test with pytest in payment-service
   → template: bug-hunt, priority: urgent, project: payment-service
   → params: { validation_command: "pytest" }
 ```

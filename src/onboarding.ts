@@ -1,17 +1,17 @@
 /**
- * TaskSmith Onboarding Wizard
+ * TaskSmith Onboarding — Simplified Setup
  *
- * Interactive setup. Each step re-runnable: `tasksmith setup --step comms`
+ * `tasksmith setup` detects Claude Code, scaffolds workspace, configures
+ * communication, and verifies connectivity. Steps are individually re-runnable
+ * via `tasksmith setup --step <name>`.
  */
 
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { scaffoldWorkspace, saveConfig, backupConfig, DEFAULT_CONFIG } from "./config.js";
 import { OUTBOUND_REGISTRY } from "./providers/comms/providers.js";
-import type { TaskSmithConfig, Notification, Priority } from "./types.js";
+import type { TaskSmithConfig } from "./types.js";
 
 function header(text: string) {
   console.log(chalk.blue(`\n  ═══ ${text} ═══\n`));
@@ -23,64 +23,16 @@ function step(n: number, total: number, text: string) {
 }
 
 // =============================================================================
-// PARSE EXISTING SETTINGS
-// =============================================================================
-
-function parseSoulDefaults(ws: string): Record<string, any> {
-  const soulPath = join(ws, "directives", "SOUL.md");
-  if (!existsSync(soulPath)) return {};
-  const content = readFileSync(soulPath, "utf-8");
-  const defaults: Record<string, any> = {};
-
-  const styleMatch = content.match(/- Style: (\w+)/);
-  if (styleMatch) defaults.style = styleMatch[1];
-
-  const approachMatch = content.match(/- Approach: ([\w-]+)/);
-  if (approachMatch) defaults.philosophy = approachMatch[1];
-
-  defaults.testsFirst = content.includes("Tests first");
-  defaults.minComments = content.includes("Self-documenting code");
-
-  if (content.includes("ask before proceeding")) defaults.uncertain = "ask first";
-  else if (content.includes("make a reasonable choice")) defaults.uncertain = "try then check";
-
-  const antiSection = content.match(/## Anti-Patterns\n((?:- .+\n?)+)/);
-  if (antiSection) {
-    defaults.anti = antiSection[1].split("\n").filter((l: string) => l.startsWith("- ")).map((l: string) => l.replace(/^- /, "")).join(", ");
-  }
-
-  return defaults;
-}
-
-function parseUserDefaults(ws: string): Record<string, string> {
-  const userPath = join(ws, "directives", "USER.md");
-  if (!existsSync(userPath)) return {};
-  const content = readFileSync(userPath, "utf-8");
-  const defaults: Record<string, string> = {};
-
-  const nameMatch = content.match(/- Name: (.+)/);
-  if (nameMatch) defaults.name = nameMatch[1].trim();
-
-  const roleMatch = content.match(/- Role: (.+)/);
-  if (roleMatch) defaults.role = roleMatch[1].trim();
-
-  const langsMatch = content.match(/- Languages: (.+)/);
-  if (langsMatch) defaults.langs = langsMatch[1].trim();
-
-  const gpuMatch = content.match(/- Local GPU: (.+)/);
-  if (gpuMatch) defaults.gpu = gpuMatch[1].trim();
-
-  return defaults;
-}
-
-// =============================================================================
 // STEPS
 // =============================================================================
 
 async function stepPrereqs(): Promise<boolean> {
-  step(1, 10, "Prerequisites Check");
-  const checks: [string, string][] = [["Claude Code CLI", "claude --version"], ["Node.js 18+", "node --version"], ["git", "git --version"]];
-  const optional: [string, string][] = [["Ollama", "ollama --version"], ["Docker", "docker --version"]];
+  step(1, 4, "Prerequisites Check");
+  const checks: [string, string][] = [
+    ["Claude Code CLI", "claude --version"],
+    ["Node.js 18+", "node --version"],
+    ["git", "git --version"],
+  ];
 
   let ok = true;
   for (const [name, cmd] of checks) {
@@ -92,6 +44,12 @@ async function stepPrereqs(): Promise<boolean> {
       ok = false;
     }
   }
+
+  // Optional tools
+  const optional: [string, string][] = [
+    ["gh CLI", "gh --version"],
+    ["Ollama", "ollama --version"],
+  ];
   console.log();
   for (const [name, cmd] of optional) {
     try {
@@ -104,86 +62,45 @@ async function stepPrereqs(): Promise<boolean> {
   return ok;
 }
 
-async function stepInit(ws: string) {
-  step(2, 10, "Initialize Workspace");
-  scaffoldWorkspace(ws);
-  console.log(`    ${chalk.green("✓")} Workspace at ${ws}`);
+async function stepInit(workspace: string) {
+  step(2, 4, "Initialize Workspace");
+  scaffoldWorkspace(workspace);
+  console.log(`    ${chalk.green("✓")} Workspace at ${workspace}`);
 }
 
-async function stepSoul(ws: string) {
-  step(3, 10, "SOUL.md — How Claude Works For You");
+async function stepComms(_ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
+  step(3, 4, "Communication");
 
-  const prev = parseSoulDefaults(ws);
-  const answers = await inquirer.prompt([
-    { name: "style", message: "Communication style:", type: "list", choices: ["concise", "balanced", "verbose"], default: prev.style || "concise" },
-    { name: "philosophy", message: "Code philosophy:", type: "list", choices: ["pragmatic", "principled", "move-fast"], default: prev.philosophy || "pragmatic" },
-    { name: "testsFirst", message: "Test-first approach?", type: "confirm", default: prev.testsFirst ?? true },
-    { name: "minComments", message: "Minimal comments (self-documenting code)?", type: "confirm", default: prev.minComments ?? true },
-    { name: "uncertain", message: "When uncertain:", type: "list", choices: ["ask first", "try then check"], default: prev.uncertain || "try then check" },
-    { name: "anti", message: "Anti-patterns (comma-separated):", default: prev.anti || "over-engineering, unnecessary abstractions, premature optimization" },
+  // Engine config
+  const engineCfg = (config as any).engine || {};
+  const currentMode = engineCfg.permissionMode || "supervised";
+  const currentConcurrency = engineCfg.concurrency || 1;
+
+  const { mode, concurrency } = await inquirer.prompt([
+    {
+      name: "mode",
+      message: "Permission mode:",
+      type: "list",
+      default: currentMode,
+      choices: [
+        { name: "supervised  — tasks may stall on permission prompts (safest)", value: "supervised" },
+        { name: "autonomous  — file ops auto-approved (recommended for unattended)", value: "autonomous" },
+        { name: "yolo        — all permissions bypassed (isolated environments only)", value: "yolo" },
+      ],
+    },
+    { name: "concurrency", message: "Parallel task slots:", type: "number", default: currentConcurrency },
   ]);
 
-  const soul = `# Soul
+  if (!config.engine) (config as any).engine = {};
+  (config as any).engine.permissionMode = mode;
+  (config as any).engine.concurrency = concurrency || 1;
 
-## Communication
-- Style: ${answers.style}
-- Lead with outcomes, explain after if needed
-- Don't ask permission on obvious next steps
+  if (mode === "yolo") {
+    console.log(chalk.red(`\n    ⚠  YOLO mode bypasses ALL Claude Code permission checks.`));
+    console.log(chalk.red(`       Only use in Docker containers, VMs, or disposable environments.`));
+  }
 
-## Code Philosophy
-- Approach: ${answers.philosophy}
-- ${answers.testsFirst ? "Tests first, then implementation" : "Implementation, then tests"}
-- ${answers.minComments ? "Self-documenting code. Minimize comments." : "Include comments for complex logic."}
-- Simple readable solutions over clever ones
-- When uncertain: ${answers.uncertain === "ask first" ? "ask before proceeding" : "make a reasonable choice, proceed, note the assumption"}
-
-## Anti-Patterns
-${answers.anti.split(",").map((p: string) => `- ${p.trim()}`).join("\n")}
-
-## Output
-- Production-quality by default
-- Include error handling
-- Follow project's existing patterns
-`;
-
-  mkdirSync(join(ws, "directives"), { recursive: true });
-  writeFileSync(join(ws, "directives", "SOUL.md"), soul);
-  console.log(`    ${chalk.green("✓")} SOUL.md created`);
-}
-
-async function stepUser(ws: string) {
-  step(4, 10, "USER.md — About You");
-
-  const prev = parseUserDefaults(ws);
-  const answers = await inquirer.prompt([
-    { name: "name", message: "Name/handle:", default: prev.name || "" },
-    { name: "role", message: "Role:", default: prev.role || "software architect" },
-    { name: "langs", message: "Primary languages:", default: prev.langs || "TypeScript, Python, Go" },
-    { name: "gpu", message: "GPU for local inference (or 'none'):", default: prev.gpu || "none" },
-  ]);
-
-  const userMd = `# User Profile
-
-## Identity
-- Name: ${answers.name}
-- Role: ${answers.role}
-
-## Technical
-- Languages: ${answers.langs}
-- Local GPU: ${answers.gpu}
-
-## Preferences
-- ADHD-aware: needs self-documenting systems, easy re-entry after gaps
-- Prefers understanding over abstraction
-`;
-
-  writeFileSync(join(ws, "directives", "USER.md"), userMd);
-  console.log(`    ${chalk.green("✓")} USER.md created`);
-}
-
-async function stepComms(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(5, 10, "Communication");
-
+  // Outbound notifications
   const isEnabled = (p: string) => config.communication.outbound.find(e => e.provider === p)?.enabled ?? false;
   const { outbound } = await inquirer.prompt([{
     name: "outbound",
@@ -245,223 +162,14 @@ async function stepComms(ws: string, config: TaskSmithConfig): Promise<TaskSmith
   const { enableApi } = await inquirer.prompt([
     { name: "enableApi", message: "Enable REST API (port 8420)?", type: "confirm", default: restApi.enabled },
   ]);
-  config.communication.inbound.find(e => e.provider === "rest_api")!.enabled = enableApi;
+  restApi.enabled = enableApi;
 
   console.log(`    ${chalk.green("✓")} Communication configured`);
   return config;
 }
 
-async function stepModels(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(6, 10, "Model Routing");
-
-  let ollamaModels: string[] = [];
-  try {
-    const r = await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(3000) });
-    const data = await r.json() as { models: { name: string }[] };
-    ollamaModels = data.models.map(m => m.name);
-  } catch { /* */ }
-
-  if (ollamaModels.length) {
-    console.log(`    ${chalk.green("✓")} Ollama detected: ${ollamaModels.length} model(s)`);
-    for (const m of ollamaModels.slice(0, 8)) console.log(`      - ${m}`);
-
-    const ollamaEntry = config.models.providers.find(e => e.provider === "ollama");
-    if (ollamaEntry) ollamaEntry.enabled = true;
-
-    const ollamaEnabled = ollamaEntry?.enabled ?? true;
-    const { useLocal } = await inquirer.prompt([
-      { name: "useLocal", message: "Use local models for summarization & embeddings?", type: "confirm", default: ollamaEnabled },
-    ]);
-    if (useLocal) {
-      const a = await inquirer.prompt([
-        { name: "embed", message: "Embedding model:", default: config.models.routing.embeddings?.model || "nomic-embed-text" },
-        { name: "summarize", message: "Summarize model:", default: config.models.routing.memory_summarize?.model || "qwen3:14b" },
-      ]);
-      config.models.routing.embeddings.model = a.embed;
-      config.models.routing.memory_summarize.model = a.summarize;
-    }
-  } else {
-    console.log(`    ${chalk.dim("○ Ollama not detected. Cloud-only mode.")}`);
-  }
-
-  console.log(`    ${chalk.green("✓")} Model routing configured`);
-  return config;
-}
-
-async function stepMemory(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(7, 10, "Memory System");
-  console.log("    Baseline (always on): markdown hot + JSONL warm");
-
-  // Init files
-  const mem = join(ws, "directives", "MEMORY.md");
-  if (!existsSync(mem)) {
-    writeFileSync(mem, `# Memory\n\n## System\n- TaskSmith initialized: ${new Date().toISOString().split("T")[0]}\n`);
-  }
-  const conv = join(ws, "directives", "CONVENTIONS.md");
-  if (!existsSync(conv)) {
-    writeFileSync(conv, "# Conventions\n\n- Prefer explicit over implicit\n- Error handling is not optional\n- Functions should do one thing\n");
-  }
-
-  console.log(`    ${chalk.green("✓")} Memory configured`);
-  return config;
-}
-
-async function stepEngine(ws: string, config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(8, 10, "Engine & Permissions");
-  console.log("    Controls how autonomous Claude Code is during task execution.\n");
-
-  if (!config.engine) (config as any).engine = {};
-
-  const currentMode = config.engine?.permissionMode || "supervised";
-
-  const { mode } = await inquirer.prompt([
-    {
-      name: "mode",
-      message: "Permission mode:",
-      type: "list",
-      default: currentMode,
-      choices: [
-        { name: "supervised  — tasks may stall on permission prompts (safest)", value: "supervised" },
-        { name: "autonomous  — file ops auto-approved, bash scoped to allow list (recommended)", value: "autonomous" },
-        { name: "yolo        — all permissions bypassed (use in isolated environments only)", value: "yolo" },
-      ],
-    },
-  ]);
-  (config as any).engine.permissionMode = mode;
-
-  if (mode === "autonomous") {
-    console.log(`\n    ${chalk.dim("Default allow list: Read, Edit, Write, npm, git, node, python, etc.")}`);
-    console.log(`    ${chalk.dim("Default deny list:  rm -rf, sudo, curl, wget, .env, secrets/")}`);
-    console.log(`    ${chalk.dim("Customize in tasksmith.yaml → engine.permissions.allow / .deny")}`);
-  } else if (mode === "yolo") {
-    console.log(chalk.red(`\n    ⚠  YOLO mode bypasses ALL Claude Code permission checks.`));
-    console.log(chalk.red(`       Only use in Docker containers, VMs, or disposable environments.`));
-  }
-
-  const currentConcurrency = config.engine?.concurrency || 1;
-  const { concurrency } = await inquirer.prompt([
-    { name: "concurrency", message: "Parallel task slots:", type: "number", default: currentConcurrency },
-  ]);
-  (config as any).engine.concurrency = concurrency || 1;
-
-  console.log(`    ${chalk.green("✓")} Engine: ${mode}, concurrency=${concurrency || 1}`);
-  return config;
-}
-
-async function stepSandbox(config: TaskSmithConfig): Promise<TaskSmithConfig> {
-  step(9, 10, "Sandbox Isolation");
-
-  console.log(chalk.gray(`
-    TaskSmith can wrap every Claude Code invocation in an OS-level sandbox,
-    enforcing filesystem and network boundaries without Docker.
-
-    ${chalk.white("What it blocks by default:")}
-      • Reading ~/.ssh, ~/.aws, and credential files
-      • Writing .env files or shell config (bashrc, zshrc)
-      • Network calls to non-allowlisted domains
-      • File writes outside the project directory
-
-    ${chalk.white("Platform:")} macOS (Seatbelt) · Linux/WSL2 (bubblewrap)
-    ${chalk.white("Overhead:")} Minimal — same primitives Claude Code uses internally.
-  `));
-
-  const { enableSandbox } = await inquirer.prompt([{
-    type: "confirm",
-    name: "enableSandbox",
-    message: "Enable sandbox isolation?",
-    default: false,
-  }]);
-
-  if (!enableSandbox) {
-    console.log(chalk.gray("    Skipped. Enable anytime: add sandbox to plugins in your config."));
-    return config;
-  }
-
-  // Platform-specific guidance
-  const os = process.platform;
-  if (os === "win32") {
-    console.log(chalk.yellow(`
-    ⚠  Native Windows not yet supported upstream.
-       Use WSL2 to get sandbox support.
-       Plugin will be added to config but will skip gracefully on Windows.`));
-  } else if (os === "linux") {
-    console.log(chalk.gray(`
-    Linux requires bubblewrap. Install if needed:
-      ${chalk.white("sudo apt install bubblewrap")}   # Debian/Ubuntu
-      ${chalk.white("sudo dnf install bubblewrap")}   # Fedora/RHEL`));
-  }
-
-  const { sandboxDefault } = await inquirer.prompt([{
-    type: "list",
-    name: "sandboxDefault",
-    message: "When should tasks run sandboxed?",
-    choices: [
-      { name: "Opt-in  — only tasks with params.sandbox: true  (recommended)", value: false },
-      { name: "All tasks  — sandbox everything by default", value: true },
-    ],
-    default: false,
-  }]);
-
-  const { lockEscapeHatch } = await inquirer.prompt([{
-    type: "confirm",
-    name: "lockEscapeHatch",
-    message: "Lock the sandbox escape hatch? (prevents Claude Code from bypassing restrictions)",
-    default: true,
-  }]);
-
-  const { installRuntime } = await inquirer.prompt([{
-    type: "confirm",
-    name: "installRuntime",
-    message: "Install @anthropic-ai/sandbox-runtime now? (recommended — avoids npx overhead)",
-    default: true,
-  }]);
-
-  if (installRuntime) {
-    console.log(chalk.gray("\n    Installing @anthropic-ai/sandbox-runtime..."));
-    try {
-      execSync("npm install @anthropic-ai/sandbox-runtime", { stdio: "inherit" });
-      console.log(chalk.green("    ✓ Installed"));
-    } catch {
-      console.log(chalk.yellow(`    ⚠ Install failed — TaskSmith will fall back to npx srt automatically.
-    Run manually: npm install @anthropic-ai/sandbox-runtime`));
-    }
-  }
-
-  // Write sandbox plugin to config
-  if (!Array.isArray((config as any).plugins)) {
-    (config as any).plugins = [];
-  }
-
-  // Remove any existing sandbox entry to avoid duplicates
-  (config as any).plugins = (config as any).plugins.filter(
-    (p: unknown) => (typeof p === "string" ? p : (p as any).name) !== "sandbox",
-  );
-
-  (config as any).plugins.push({
-    name: "sandbox",
-    config: {
-      enabled: sandboxDefault,
-      allowUnsandboxedCommands: !lockEscapeHatch,
-      logViolations: true,
-    },
-  });
-
-  console.log(chalk.green(`\n    ✓ Sandbox plugin configured.`) +
-    chalk.gray(sandboxDefault
-      ? " All tasks will run sandboxed by default."
-      : " Tasks opt in via params.sandbox: true."));
-
-  if (!sandboxDefault) {
-    console.log(chalk.gray(`
-    Quick start — add to any task file:
-      ${chalk.white("params:\n        sandbox: true")}`));
-  }
-
-  return config;
-}
-
-async function stepSmokeTest(ws: string, config: TaskSmithConfig) {
-  step(10, 10, "Smoke Test");
+async function stepSmokeTest(_ws: string, config: TaskSmithConfig) {
+  step(4, 4, "Smoke Test");
 
   const enabled = config.communication.outbound.filter(e => e.enabled);
   if (enabled.length) {
@@ -488,7 +196,7 @@ async function stepSmokeTest(ws: string, config: TaskSmithConfig) {
 // =============================================================================
 
 export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: string) {
-  header("TaskSmith Onboarding");
+  header("TaskSmith Setup");
 
   // Backup existing config before making changes
   const backup = backupConfig(ws);
@@ -499,20 +207,13 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
   const steps: Record<string, () => Promise<any>> = {
     prereqs: () => stepPrereqs(),
     dirs: () => stepInit(ws),
-    soul: () => stepSoul(ws),
-    user: () => stepUser(ws),
     comms: () => stepComms(ws, config),
-    models: () => stepModels(ws, config),
-    memory: () => stepMemory(ws, config),
-    engine: () => stepEngine(ws, config),
-    sandbox: () => stepSandbox(config),
     test: () => stepSmokeTest(ws, config),
   };
 
   if (stepName && stepName in steps) {
     const result = await steps[stepName]();
     if (result?.communication) config = result;
-    else if (result?.plugins !== undefined || result?.taskDefaults !== undefined) config = result;
   } else {
     const ok = await stepPrereqs();
     if (!ok) {
@@ -520,13 +221,7 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
       if (!cont) return;
     }
     await stepInit(ws);
-    await stepSoul(ws);
-    await stepUser(ws);
     config = await stepComms(ws, config);
-    config = await stepModels(ws, config);
-    config = await stepMemory(ws, config);
-    config = await stepEngine(ws, config);
-    config = await stepSandbox(config);
     await stepSmokeTest(ws, config);
   }
 
@@ -540,20 +235,17 @@ export async function runSetup(ws: string, config: TaskSmithConfig, stepName?: s
     Check status:   ${chalk.bold("tasksmith status")}
 
     Re-run a step:  ${chalk.bold("tasksmith setup --step NAME")}
-    Steps: prereqs, dirs, soul, user, comms, models, memory, engine, sandbox, test
+    Steps: prereqs, dirs, comms, test
 `);
 
   console.log(chalk.yellow.bold("  ⚠  Security Notice\n"));
   console.log(chalk.yellow("  TaskSmith executes AI-generated code on your machine."));
   console.log(chalk.yellow("  This is powerful — and carries real risks.\n"));
   console.log(`  ${chalk.dim("•")} Start with supervised mode until you're comfortable`);
-  console.log(`  ${chalk.dim("•")} Use autonomous mode with a restrictive allow list for unattended runs`);
+  console.log(`  ${chalk.dim("•")} Use autonomous mode for unattended runs`);
   console.log(`  ${chalk.dim("•")} Only use yolo mode in isolated environments (Docker, VM)`);
-  console.log(`  ${chalk.dim("•")} Use the sandbox plugin to contain filesystem + network access`);
   console.log(`  ${chalk.dim("•")} Never expose the REST API to the internet without auth`);
   console.log(`  ${chalk.dim("•")} Restrict Discord bot to private channels with trusted users`);
-  console.log(`  ${chalk.dim("•")} Use Docker isolation for untrusted or high-risk tasks`);
   console.log(`  ${chalk.dim("•")} validation_command runs as a shell command — treat it accordingly`);
   console.log(`  ${chalk.dim("•")} Review task files from external sources before dropping in inbox\n`);
-  console.log(`  ${chalk.dim("See README.md Security and Permission Modes sections for details.\n")}`);
 }

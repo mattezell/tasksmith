@@ -1,7 +1,7 @@
 {
   "name": "tasksmith-cli",
-  "version": "0.8.6",
-  "description": "Lightweight agent orchestration for Claude Code",
+  "version": "1.0.0",
+  "description": "The unattended ops layer for Claude Code",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

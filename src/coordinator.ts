@@ -17,7 +17,7 @@ import { OUTBOUND_REGISTRY, createInboundProvider } from "./providers/comms/prov
 import { MarkdownMemoryProvider, JSONLMemoryProvider, SessionArchiver, MEMORY_REGISTRY } from "./providers/memory/providers.js";
 import { PluginManager } from "./plugins.js";
 import { Scheduler } from "./scheduler.js";
-import { WorkerPool, POOL_DEFAULTS } from "./pool.js";
+import { WorkerPool } from "./pool.js";
 import type {
   TaskSmithConfig, OutboundCommsProvider, InboundCommsProvider,
   MemoryProvider, InboundMessage, Task,
@@ -113,7 +113,6 @@ export class Coordinator {
     this.engine.memory = this.memory;
     this.engine.hotMemory = this.hotMemory;
     this.engine.archiver = this.archiver;
-    this.engine.pluginManager = this.pluginManager; // enables command wrappers (sandbox plugin)
   }
 
   // ── Inbound Handler ────────────────────────────────────────────
@@ -436,9 +435,9 @@ export class Coordinator {
 
     this.pool = new WorkerPool(
       this.workspace,
-      { concurrency, worktree: { ...POOL_DEFAULTS.worktree, ...(engineConfig.worktree || {}) } },
-      async (task, cwdOverride) => {
-        await this.engine.execute(task, cwdOverride);
+      { concurrency },
+      async (task) => {
+        await this.engine.execute(task);
         // Check for DAG unblocking after every task completion
         this.handleDAGCompletion(task);
       },

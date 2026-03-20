@@ -1,28 +1,21 @@
 /**
  * TaskSmith Configuration
- * 
+ *
  * Handles loading, merging, defaults, workspace scaffolding, and path resolution.
- * 
+ *
  * Workspace resolution order:
  *   1. --dir CLI flag (explicit workspace)
  *   2. TASKSMITH_DIR env var
  *   3. Project-local: cwd (or parent) has .tasksmith/ or tasksmith.yaml
  *   4. Global: ~/.tasksmith
- * 
- * Template resolution order:
- *   1. Project-local: ./.tasksmith/templates/<n>/PROMPT.md
- *   2. Workspace: <workspace>/templates/<n>/PROMPT.md
- *   3. Global override: ~/.tasksmith/templates/<n>/PROMPT.md
- *   4. Built-in: <install-dir>/templates/<n>/PROMPT.md
- *   5. Plugin-provided templates
- * 
+ *
  * Config layering:
  *   defaults -> global ~/.tasksmith config -> workspace config -> env overrides
- * 
+ *
  * File formats: YAML (.yaml/.yml) and JSON (.json) for both config and task files.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -40,40 +33,11 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
   system: { name: "TaskSmith", version: pkg.version, logLevel: "INFO" },
   workspace: {
     projectsDir: "",        // if empty, defaults to <workspace>/projects
-    templatesDir: "",       // additional template search path
     globalConfigDir: "",    // if empty, defaults to ~/.tasksmith
   },
   engine: {
     concurrency: 1,
     permissionMode: "supervised",
-    permissions: {
-      allow: [
-        "Read", "Edit", "Write",
-        "Bash(npm *)", "Bash(npx *)", "Bash(node *)",
-        "Bash(git add *)", "Bash(git commit *)", "Bash(git status *)",
-        "Bash(git diff *)", "Bash(git branch *)", "Bash(git checkout *)",
-        "Bash(git log *)",
-        "Bash(ls *)", "Bash(cat *)", "Bash(mkdir *)", "Bash(cp *)",
-        "Bash(grep *)", "Bash(find *)", "Bash(echo *)", "Bash(head *)", "Bash(tail *)",
-        "Bash(python *)", "Bash(python3 *)", "Bash(pip *)",
-        "Bash(cargo *)", "Bash(go *)", "Bash(make *)",
-        "Bash(tsc *)",
-      ],
-      deny: [
-        "Bash(rm -rf *)",
-        "Bash(sudo *)",
-        "Bash(curl *)",
-        "Bash(wget *)",
-        "Read(.env*)",
-        "Read(secrets/**)",
-      ],
-    },
-    worktree: {
-      enabled: false,
-      strategy: "pr",
-      baseBranch: "main",
-      setup: {},
-    },
   },
   communication: {
     outbound: [
@@ -155,7 +119,7 @@ const WORKSPACE_DIRS = [
   "tasks/inbox", "tasks/active", "tasks/completed", "tasks/failed", "tasks/examples",
   "projects", "memory/sessions", "memory/logs",
   "comms/outbox", "comms/inbox",
-  "output", "scripts", "templates",
+  "output", "scripts",
 ];
 
 /** Global config directory — always ~/.tasksmith */
@@ -254,7 +218,7 @@ export function scaffoldWorkspace(workspace: string): void {
  */
 export function initProjectLocal(projectDir: string): string {
   const tsDir = join(projectDir, ".tasksmith");
-  for (const d of ["config", "templates", "tasks/inbox", "tasks/active", "tasks/completed", "tasks/failed", "directives"]) {
+  for (const d of ["config", "tasks/inbox", "tasks/active", "tasks/completed", "tasks/failed", "directives"]) {
     mkdirSync(join(tsDir, d), { recursive: true });
   }
 
@@ -268,82 +232,6 @@ export function initProjectLocal(projectDir: string): string {
   }
 
   return tsDir;
-}
-
-// =============================================================================
-// TEMPLATE RESOLUTION
-// =============================================================================
-
-/**
- * Resolve template directory by searching paths in priority order.
- * Returns path to directory containing PROMPT.md, or null.
- */
-export function resolveTemplate(templateName: string, workspace: string, config: TaskSmithConfig): string | null {
-  const normalized = templateName.replace(/-/g, "_");
-  const searchPaths: string[] = [];
-
-  // 1. Project-local (.tasksmith/templates/)
-  const cwd = process.cwd();
-  const dotTs = join(cwd, ".tasksmith", "templates");
-  if (existsSync(dotTs)) {
-    searchPaths.push(join(dotTs, normalized));
-    if (normalized !== templateName) searchPaths.push(join(dotTs, templateName));
-  }
-
-  // 2. Workspace templates/
-  searchPaths.push(join(workspace, "templates", normalized));
-  if (normalized !== templateName) searchPaths.push(join(workspace, "templates", templateName));
-
-  // 3. Extra templates dir from config
-  if (config.workspace?.templatesDir) {
-    const extra = resolve(config.workspace.templatesDir);
-    searchPaths.push(join(extra, normalized));
-  }
-
-  // 4. Global override (~/.tasksmith/templates/) if workspace != global
-  const global = globalConfigDir();
-  if (resolve(workspace) !== resolve(global)) {
-    searchPaths.push(join(global, "templates", normalized));
-  }
-
-  // 5. Built-in (shipped with npm package)
-  const builtinBase = join(import.meta.dirname ?? dirname(new URL(import.meta.url).pathname), "..", "templates");
-  searchPaths.push(join(builtinBase, normalized));
-  if (normalized !== templateName) searchPaths.push(join(builtinBase, templateName));
-
-  for (const dir of searchPaths) {
-    if (existsSync(join(dir, "PROMPT.md"))) return dir;
-  }
-  return null;
-}
-
-/**
- * List all available templates across all search paths (deduplicated, first wins).
- */
-export function listTemplates(workspace: string, config: TaskSmithConfig): Array<{ name: string; source: string; path: string }> {
-  const found = new Map<string, { source: string; path: string }>();
-
-  const scan = (dir: string, source: string) => {
-    if (!existsSync(dir)) return;
-    try {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (entry.isDirectory() && existsSync(join(dir, entry.name, "PROMPT.md"))) {
-          if (!found.has(entry.name)) found.set(entry.name, { source, path: join(dir, entry.name) });
-        }
-      }
-    } catch { /* permission errors, etc */ }
-  };
-
-  const cwd = process.cwd();
-  if (existsSync(join(cwd, ".tasksmith", "templates"))) scan(join(cwd, ".tasksmith", "templates"), "project-local");
-  scan(join(workspace, "templates"), "workspace");
-  if (config.workspace?.templatesDir) scan(resolve(config.workspace.templatesDir), "custom");
-  const global = globalConfigDir();
-  if (resolve(workspace) !== resolve(global)) scan(join(global, "templates"), "global");
-  const builtinBase = join(import.meta.dirname ?? dirname(new URL(import.meta.url).pathname), "..", "templates");
-  scan(builtinBase, "built-in");
-
-  return Array.from(found.entries()).map(([name, info]) => ({ name, ...info }));
 }
 
 // =============================================================================
