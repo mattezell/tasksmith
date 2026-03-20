@@ -6,8 +6,11 @@
  */
 
 import { watch } from "chokidar";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFileSync, readdirSync, renameSync, unlinkSync } from "node:fs";
 import { join, basename, dirname } from "node:path";
+import yaml from "js-yaml";
 import type {
   OutboundCommsProvider,
   InboundCommsProvider,
@@ -385,6 +388,187 @@ export class WatchedFolderProvider implements InboundCommsProvider {
   }
 }
 
+export class GitHubWebhookProvider implements InboundCommsProvider {
+  readonly name = "github_webhook";
+  private port: number;
+  private webhookSecret: string;
+  private triggerLabels: Set<string>;
+  private triggerComment: string;
+  private defaultTemplate: string;
+  private defaultModel: string;
+  private server: ReturnType<typeof createServer> | null = null;
+
+  constructor(config: Record<string, unknown>) {
+    this.port = (config.port as number) || 8421;
+    this.webhookSecret = (config.webhookSecret as string) || "";
+    this.triggerLabels = new Set((config.triggerLabels as string[]) || ["tasksmith"]);
+    this.triggerComment = (config.triggerComment as string) || "/tasksmith";
+    this.defaultTemplate = (config.defaultTemplate as string) || "ralph-loop";
+    this.defaultModel = (config.defaultModel as string) || "sonnet";
+  }
+
+  async start(callback: InboundCallback): Promise<void> {
+    if (!this.webhookSecret) {
+      console.error("[github_webhook] webhookSecret is required. Skipping.");
+      return;
+    }
+
+    this.server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      if (req.method !== "POST") {
+        res.writeHead(405).end("Method Not Allowed");
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const rawBody = Buffer.concat(chunks);
+
+      // Verify HMAC-SHA256 signature
+      const sig = req.headers["x-hub-signature-256"] as string | undefined;
+      if (!this.verifySignature(rawBody, sig)) {
+        res.writeHead(401).end("Invalid signature");
+        return;
+      }
+
+      let payload: Record<string, any>;
+      try {
+        payload = JSON.parse(rawBody.toString("utf-8"));
+      } catch {
+        res.writeHead(400).end("Invalid JSON");
+        return;
+      }
+
+      const event = req.headers["x-github-event"] as string;
+      const msg = this.eventToMessage(event, payload);
+
+      if (msg) {
+        try {
+          await callback(msg);
+          res.writeHead(200).end("Accepted");
+        } catch (e) {
+          console.error(`[github_webhook] Error handling ${event}:`, e);
+          res.writeHead(500).end("Internal error");
+        }
+      } else {
+        // Event didn't match any trigger — acknowledge but ignore
+        res.writeHead(200).end("Ignored");
+      }
+    });
+
+    this.server.listen(this.port, () => {
+      console.log(`[github_webhook] Listening on :${this.port}`);
+    });
+  }
+
+  async stop(): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.server) {
+        this.server.close(() => resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  async test(): Promise<boolean> {
+    return Boolean(this.webhookSecret);
+  }
+
+  // ── Signature Verification ──────────────────────────────────────
+
+  private verifySignature(body: Buffer, signature: string | undefined): boolean {
+    if (!signature) return false;
+    const expected = "sha256=" + createHmac("sha256", this.webhookSecret).update(body).digest("hex");
+    try {
+      return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  }
+
+  // ── Event → InboundMessage Mapping ──────────────────────────────
+
+  private eventToMessage(event: string, payload: Record<string, any>): InboundMessage | null {
+    const action = payload.action as string | undefined;
+    const repo = payload.repository?.full_name || "unknown";
+    const sender = payload.sender?.login || "github";
+
+    // issues.opened or issues.labeled — structured task from labeled issues
+    if (event === "issues" && (action === "opened" || action === "labeled")) {
+      const issue = payload.issue;
+      if (!issue) return null;
+
+      const labels: string[] = (issue.labels || []).map((l: any) => l.name || l);
+      const hasMatch = labels.some((l: string) => this.triggerLabels.has(l));
+      if (!hasMatch) return null;
+
+      const taskYaml = this.issueToTaskYaml(issue, repo, labels);
+      return {
+        source: "github_webhook",
+        sender,
+        content: taskYaml,
+        timestamp: new Date(),
+        metadata: {
+          event,
+          action,
+          repo,
+          issueNumber: issue.number,
+          labels,
+        },
+      };
+    }
+
+    // issue_comment.created — natural language trigger via comment
+    if (event === "issue_comment" && action === "created") {
+      const comment = payload.comment;
+      const issue = payload.issue;
+      if (!comment || !issue) return null;
+
+      const body = (comment.body || "").trim();
+      if (!body.toLowerCase().startsWith(this.triggerComment.toLowerCase())) return null;
+
+      // Strip trigger prefix, pass the rest as natural language
+      const prompt = body.slice(this.triggerComment.length).trim();
+      if (!prompt) return null;
+
+      // Include issue context so nlToTask has something to work with
+      const content = `GitHub Issue #${issue.number}: ${issue.title}\n\n${prompt}`;
+      return {
+        source: "github_webhook",
+        sender,
+        content,
+        timestamp: new Date(),
+        metadata: {
+          event,
+          action,
+          repo,
+          issueNumber: issue.number,
+          commentId: comment.id,
+        },
+      };
+    }
+
+    return null;
+  }
+
+  // ── Issue → Structured YAML ─────────────────────────────────────
+
+  private issueToTaskYaml(issue: Record<string, any>, repo: string, labels: string[]): string {
+    return yaml.dump({
+      template: this.defaultTemplate,
+      prompt: `GitHub Issue #${issue.number}: ${issue.title}\n\n${issue.body || "(no description)"}`,
+      project: repo,
+      model: this.defaultModel,
+      priority: "normal",
+      params: {
+        github_issue: issue.number,
+        github_repo: repo,
+        labels: labels.join(", "),
+      },
+    }, { lineWidth: 120 });
+  }
+}
+
 // =============================================================================
 // REGISTRIES
 // =============================================================================
@@ -403,6 +587,7 @@ export function createInboundProvider(name: string, config: Record<string, unkno
     case "file_drop": return new FileDropProvider(config, inboxPath);
     case "discord_bot": return new DiscordBotProvider(config);
     case "watched_folder": return new WatchedFolderProvider(config);
+    case "github_webhook": return new GitHubWebhookProvider(config);
     // rest_api is handled by the coordinator directly (starts Fastify)
     default: return null;
   }
