@@ -233,55 +233,6 @@ Each Claude Code iteration logs a summary line:
 
 For deeper debugging, set `system.logLevel: DEBUG` in your config to save the full Claude Code JSON response per iteration to `~/.tasksmith/logs/{task-id}/iteration-{n}.json`.
 
-### Sandbox Isolation
-
-Wrap Claude Code invocations in OS-level process isolation — without Docker. Uses bubblewrap (Linux/WSL2) and Seatbelt (macOS), the same primitives Claude Code uses internally. Zero daemon. Minimal overhead.
-
-```yaml
-plugins:
-  - name: sandbox
-    config:
-      enabled: false                    # opt-in per task (recommended)
-      allowUnsandboxedCommands: false   # lock the escape hatch
-```
-
-**Per-task opt-in:**
-
-```yaml
-params:
-  sandbox: true
-  sandbox_domains: ["pypi.org", "stripe.com"]  # extend allowlist for this task
-```
-
-**Per-task opt-out** (when globally enabled):
-
-```yaml
-params:
-  sandbox: false
-```
-
-**What's blocked by default:**
-
-| Category | Blocked |
-|----------|---------|
-| Filesystem reads | `~/.ssh`, `~/.aws`, `~/.config/gcloud`, `~/.gnupg`, `~/.netrc` |
-| Filesystem writes | `.env`, `.env.*`, `~/.bashrc`, `~/.zshrc`, `~/.profile` |
-| Network | All domains not on the allowlist |
-
-**What's allowed:** `api.anthropic.com`, `registry.npmjs.org`, `pypi.org`, `github.com` and a few more. Full list in `src/plugins/bundled/sandbox.ts`.
-
-**Escape hatch:** By default (`allowUnsandboxedCommands: false`), Claude Code cannot self-authorize a sandbox bypass. Violations fail hard. Set to `true` only if you need Claude Code to run commands that legitimately need unrestricted access.
-
-**vs. Docker plugin:** Use sandbox for lightweight OS-level isolation on trusted tasks. Use Docker when you need custom base environments, strict resource limits, or DinD. They're complementary — you can run both.
-
-**Install the runtime** (optional but recommended — avoids `npx` overhead):
-
-```bash
-npm install @anthropic-ai/sandbox-runtime
-```
-
-TaskSmith falls back to `npx srt` automatically when the package isn't installed.
-
 ### Scheduled Tasks
 
 Recurring tasks via cron syntax — memory consolidation, health checks, reports:
@@ -339,7 +290,6 @@ Don't want projects trapped in `~/.tasksmith/projects/`?
 # ~/.tasksmith/config/tasksmith.yaml
 workspace:
   projectsDir: ~/code               # projects live here instead
-  templatesDir: ~/shared-templates   # additional template search path
 ```
 
 ---
@@ -400,9 +350,8 @@ Templates resolve in priority order (first match wins):
 
 1. **Project-local:** `.tasksmith/templates/`
 2. **Workspace:** `<workspace>/templates/`
-3. **Custom:** path from `workspace.templatesDir` config
-4. **Global:** `~/.tasksmith/templates/`
-5. **Built-in:** shipped with the npm package
+3. **Global:** `~/.tasksmith/templates/`
+4. **Claude Code Skills:** `.claude/skills/` (v1.0.0 migrated built-in templates to Skills format)
 
 Override any built-in:
 
@@ -412,13 +361,11 @@ cp "$(npm root -g)/tasksmith-cli/templates/ralph_loop/PROMPT.md" .tasksmith/temp
 # edit to your liking
 ```
 
-List all templates and their sources: `tasksmith templates`
-
 ---
 
 ## Official Plugins
 
-9 plugins ship with `tasksmith-cli` — no separate install. Enable in config:
+8 plugins ship with `tasksmith-cli` — no separate install. Enable in config:
 
 ```yaml
 plugins:
@@ -437,7 +384,6 @@ plugins:
 | **proxmox** | Proxmox VM provisioning. Clone from templates, snapshot/rollback, lifecycle management. CLI: `tasksmith proxmox` |
 | **cloudflare** | Cloudflare Pages deployments. Auto-deploy on task success, rollback, cache purge. Uses `wrangler` CLI. CLI: `tasksmith cf` |
 | **semantic-memory** | Vector-based semantic search over task history. Supports Ollama (local), OpenAI, or Gemini embeddings. CLI: `tasksmith semantic` |
-| **sandbox** | OS-level process isolation via `@anthropic-ai/sandbox-runtime`. Filesystem + network boundaries. No Docker required. macOS/Linux/WSL2. |
 
 Plugins with config:
 
@@ -491,7 +437,6 @@ Scaffold your own: `tasksmith plugin create my-thing`
 | `ntfy` | Push notifications to phone/desktop via [ntfy.sh](https://ntfy.sh) |
 | `slack_webhook` | Slack channel messages |
 | `email` | SMTP email notifications |
-| `sms_twilio` | SMS via Twilio |
 | `webhook_generic` | POST JSON to any URL |
 
 ### Inbound (receive tasks)
@@ -786,10 +731,6 @@ params:
   validation_command: "npm test"
   cooldown_seconds: 5       # Pause between retries
   permission_mode: autonomous  # Override engine permission mode for this task
-  allowed_tools:             # Additional --allowedTools for this task (autonomous mode)
-    - "Bash(python *)"
-  disallowed_tools:          # Additional --disallowedTools for this task
-    - "Bash(pip install *)"
   github_issue: 42          # Link to GitHub issue (github plugin)
   jira_ticket: "PROJ-123"   # Link to JIRA ticket (jira plugin)
   docker_image: "node:22"   # Override container image (docker plugin)
@@ -805,7 +746,6 @@ params:
 ```yaml
 workspace:
   projectsDir: ~/code
-  templatesDir: ""
 
 taskDefaults:
   maxIterations: 5
@@ -816,36 +756,14 @@ taskDefaults:
 engine:
   permissionMode: supervised  # supervised | autonomous | yolo
   concurrency: 3              # parallel task slots
-  permissions:                 # used in autonomous mode
-    allow:
-      - "Read"
-      - "Edit"
-      - "Write"
-      - "Bash(npm *)"
-      - "Bash(git *)"
-      - "Bash(node *)"
-      - "Bash(ls *)"
-      - "Bash(cat *)"
-      - "Bash(mkdir *)"
-      - "Bash(python *)"
-      - "Bash(tsc *)"
-    deny:
-      - "Bash(rm -rf *)"
-      - "Bash(sudo *)"
-      - "Bash(curl *)"
-      - "Bash(wget *)"
-      - "Read(.env*)"
-      - "Read(secrets/**)"
-  worktree:
-    enabled: true           # git worktree isolation
-    strategy: "pr"          # "pr" | "auto-merge" | "branch-only"
-    baseBranch: "main"
 
-schedules:
-  - name: "nightly-consolidation"
-    template: heartbeat
-    prompt: "Consolidate memory"
-    cron: "0 2 * * *"
+scheduling:
+  tasks:
+    - name: "nightly-consolidation"
+      template: heartbeat
+      prompt: "Consolidate memory"
+      schedule: "0 2 * * *"
+      enabled: true
 
 communication:
   outbound:
@@ -860,6 +778,17 @@ communication:
         port: 8420
         authToken: "${TASKSMITH_API_TOKEN}"
         rateLimit: 60
+    - provider: github_webhook
+      enabled: false
+      config:
+        port: 8421
+        secret: "${GITHUB_WEBHOOK_SECRET}"
+        triggerLabels: ["tasksmith"]
+    - provider: slack_events
+      enabled: false
+      config:
+        port: 8422
+        signingSecret: "${SLACK_SIGNING_SECRET}"
 
 plugins:
   - metrics
@@ -872,10 +801,6 @@ plugins:
       pages:
         projectName: "my-site"
         deployDir: "site/"
-  - name: sandbox
-    config:
-      enabled: false                   # true = all tasks, false = opt-in per task
-      allowUnsandboxedCommands: false  # lock escape hatch (recommended)
 ```
 
 Config layering: defaults → global `~/.tasksmith` → project-local `.tasksmith/`
@@ -903,43 +828,9 @@ Best for: learning the system, environments where you've already configured Clau
 tasksmith run --mode autonomous
 ```
 
-The recommended mode for unattended operation. Passes `--permission-mode acceptEdits` to Claude Code along with scoped tool permissions:
+The recommended mode for unattended operation. Passes `--permission-mode acceptEdits` to Claude Code, which auto-approves file edits while still prompting for bash commands and other tool calls.
 
-- `--allowedTools` from `engine.permissions.allow` — file operations are auto-approved; bash commands scoped to explicitly allowed patterns
-- `--disallowedTools` from `engine.permissions.deny` — destructive commands blocked
-- If a task has a `validation_command`, the base command is **automatically added** to the allow list
-
-TaskSmith ships with sensible defaults covering common dev tools (npm, git, python, cargo, go, make, tsc, basic file ops) while denying destructive commands (rm -rf, sudo, curl, wget) and sensitive file reads (.env, secrets/).
-
-Customize per workspace:
-
-```yaml
-engine:
-  permissionMode: autonomous
-  permissions:
-    allow:
-      - "Bash(npm *)"
-      - "Bash(cargo *)"
-      - "Bash(docker build *)"
-    deny:
-      - "Bash(rm -rf *)"
-      - "Bash(sudo *)"
-```
-
-Or per task:
-
-```yaml
-template: ralph-loop
-prompt: "Run the ML training pipeline"
-params:
-  permission_mode: autonomous
-  allowed_tools:
-    - "Bash(python *)"
-    - "Bash(pip install *)"
-  disallowed_tools:
-    - "Bash(rm -rf *)"
-  validation_command: "python -m pytest"
-```
+Configure your Claude Code project or user settings to fine-tune which tools are allowed/denied — TaskSmith delegates all permission enforcement to Claude Code's native permission system.
 
 Best for: solo developer workflows, trusted project codebases, unattended overnight runs.
 
@@ -949,7 +840,7 @@ Best for: solo developer workflows, trusted project codebases, unattended overni
 tasksmith run --mode yolo
 ```
 
-Passes `--dangerously-skip-permissions` to Claude Code. All permission checks are bypassed — Claude executes any operation without prompting. The `engine.permissions.deny` list is still applied via `--disallowedTools` (which works even in bypass mode).
+Passes `--dangerously-skip-permissions` to Claude Code. All permission checks are bypassed — Claude executes any operation without prompting.
 
 Displays a prominent red warning on startup:
 
@@ -974,9 +865,8 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ### Important Notes
 
-- **No settings files are written.** TaskSmith passes CLI flags to Claude Code (`--permission-mode`, `--allowedTools`, `--disallowedTools`, `--dangerously-skip-permissions`). Your `~/.claude/settings.json` and project `.claude/` directories are never touched.
-- **Known issue:** `--allowedTools` may be ignored when combined with `--dangerously-skip-permissions` (Claude Code bug). This is why `yolo` mode uses `--disallowedTools` instead — which works correctly in all modes.
-- **Validation commands are auto-allowed.** In `autonomous` mode, if a task has `params.validation_command: "npm test"`, TaskSmith automatically adds `Bash(npm *)` to the allow list so the Ralph Loop can run without stalling.
+- **No settings files are written.** TaskSmith passes CLI flags to Claude Code (`--permission-mode`, `--dangerously-skip-permissions`). Your `~/.claude/settings.json` and project `.claude/` directories are never touched.
+- **Permission enforcement is delegated to Claude Code.** Configure allowed/denied tools in your Claude Code settings (user or project level). TaskSmith only controls which mode flag is passed.
 
 ---
 
@@ -1006,7 +896,7 @@ This means you can run the engine in `supervised` mode but submit individual tas
 ├──────────────────────────────────────────┤
 │    Bundled Plugins (github, metrics,     │
 │    docker, jira, postgres, proxmox,      │
-│    cloudflare, semantic-memory, sandbox) │
+│    cloudflare, semantic-memory)          │
 ├──────────────────────────────────────────┤
 │    Community Plugins (npm discovery)     │
 └──────────────────────────────────────────┘
@@ -1016,38 +906,36 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
-├── engine.ts            1086 lines   Task lifecycle, Ralph Loop, circuit breaker, smart model routing
-├── cli.ts                802 lines   Commander CLI (21 commands)
-├── mcp.ts                743 lines   MCP server (stdio), 12 tools, 4 resources
-├── pool.ts               668 lines   Worker pool, concurrency, project-aware worktree isolation
-├── plugins.ts            620 lines   Plugin loader, lifecycle hooks, command wrappers, scaffolding
-├── onboarding.ts         559 lines   10-step interactive setup wizard
-├── coordinator.ts        538 lines   Wires providers + engine + pool + plugins + DAG
-├── config.ts             436 lines   Workspace resolution, config layering, template chain
-├── dag.ts                417 lines   Task DAG: dependency resolution, cycle detection, failure propagation
-├── sanitize.ts           375 lines   Input sanitization: trust levels, allowlist validation
-├── types.ts              291 lines   Interfaces, provider contracts, permission types
-├── scheduler.ts          237 lines   Cron-based task scheduling
-├── api.ts                186 lines   REST API server
-├── index.ts               13 lines   Package exports
+├── engine.ts            ~1,050 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing
+├── cli.ts                ~960 lines   Commander CLI (submit, dag, metrics, insights, workers, etc.)
+├── mcp.ts                ~700 lines   MCP server (stdio), 13 tools, 4 resources
+├── plugins.ts            ~566 lines   Plugin loader, lifecycle hooks, scaffolding
+├── coordinator.ts        ~547 lines   Wires providers + engine + pool + plugins + DAG
+├── dag.ts                ~450 lines   Task DAG: dependency resolution, cycle detection, Mermaid export
+├── sanitize.ts           ~375 lines   Input sanitization: trust levels, allowlist validation
+├── config.ts             ~324 lines   Workspace resolution, config layering
+├── api.ts                ~255 lines   REST API server (Fastify) — auth + rate limiting
+├── onboarding.ts         ~251 lines   Simplified setup wizard
+├── scheduler.ts          ~237 lines   Cron-based task scheduling
+├── types.ts              ~203 lines   Interfaces, provider contracts
+├── pool.ts               ~138 lines   Worker pool, concurrency limiter
+├── index.ts               ~13 lines   Package exports
 ├── providers/
-│   ├── comms/            409 lines   6 outbound + 5 inbound providers
-│   └── memory/           241 lines   Markdown, JSONL, compressed archives
+│   ├── comms/            ~770 lines   5 outbound + 5 inbound providers (+ GitHub webhook, Slack Events)
+│   └── memory/           ~241 lines   Markdown, JSONL, compressed archives
 └── plugins/bundled/
-    ├── index.ts           92 lines   Lazy-load registry
-    ├── cloudflare.ts     487 lines   Cloudflare Pages deployments
-    ├── semantic-memory   451 lines   Vector-based semantic search
-    ├── sandbox.ts        303 lines   OS-level sandbox isolation
-    ├── metrics.ts        296 lines   Execution analytics
-    ├── proxmox.ts        295 lines   Proxmox VM provisioning
-    ├── docker.ts         246 lines   Container isolation
-    ├── jira.ts           243 lines   JIRA ticket integration
-    ├── github.ts         240 lines   GitHub Issues/PR integration
-    └── postgres.ts       229 lines   PostgreSQL task history
-    └── sandbox.ts        303 lines   OS-level sandbox isolation
+    ├── index.ts           ~92 lines   Lazy-load registry
+    ├── metrics.ts        ~545 lines   Execution analytics, cost tracking, insights engine
+    ├── cloudflare.ts     ~487 lines   Cloudflare Pages deployments
+    ├── semantic-memory.ts ~451 lines  Vector-based semantic search
+    ├── proxmox.ts        ~295 lines   Proxmox VM provisioning
+    ├── docker.ts         ~246 lines   Container isolation
+    ├── jira.ts           ~243 lines   JIRA ticket integration
+    ├── github.ts         ~240 lines   GitHub Issues/PR integration
+    └── postgres.ts       ~229 lines   PostgreSQL task history
 ```
 
-**Under 8,000 lines of core TypeScript** + 2,892 lines across 9 bundled plugins. Every module fits in your head.
+**Under 8,000 lines of core TypeScript** + ~2,800 lines across 8 bundled plugins. Every module fits in your head.
 
 ### Design Principles
 
@@ -1079,26 +967,24 @@ TaskSmith executes AI-generated code on your machine. This is the entire point �
 ### Mitigations (Current)
 
 - Claude Code has its own safety layer and permission model
-- **Permission modes** control how much autonomy Claude Code gets — `supervised` (default) is most restrictive, `autonomous` provides scoped access, `yolo` is unrestricted
-- `engine.permissions.deny` blocks destructive commands even in `yolo` mode (via `--disallowedTools`)
-- Default deny list blocks `rm -rf`, `sudo`, `curl`, `wget`, and `.env`/`secrets/` file reads
+- **Permission modes** control how much autonomy Claude Code gets — `supervised` (default) is most restrictive, `autonomous` auto-approves edits, `yolo` is unrestricted
+- Permission enforcement is delegated to Claude Code — configure allowed/denied tools in your CC settings
+- **Input sanitization** strips shell metacharacters and validates task fields from external sources
+- **REST API auth** — bearer token + sliding-window rate limiting (configure `authToken` before network exposure)
 - REST API binds to localhost by default
 - Discord bot supports channel ID filtering
 - Docker plugin provides optional container isolation
 - File drop requires local filesystem access
-- Git worktree isolation (default `pr` strategy) ensures changes are reviewed before merging
 
 ### Recommendations
 
 - **Start with `supervised` mode** until you're comfortable with how tasks execute
-- **Use `autonomous` mode** with a restrictive `engine.permissions.allow` list for unattended operation
+- **Use `autonomous` mode** for unattended operation, combined with Claude Code's native permission settings
 - **Only use `yolo` mode** in isolated environments (Docker, VM, disposable worktrees)
 - **Enable REST API auth** (`authToken` config) before exposing to the network
 - **Restrict Discord bot** to a private channel with trusted users only
 - **Use Docker isolation** for untrusted or high-risk tasks
 - **Review task files** before dropping them in inbox if they come from external sources
-- **Use the `pr` worktree strategy** (default) so changes are reviewed before merging
-- **Customize deny lists** per-project to block project-specific sensitive operations
 
 Input sanitization (v0.8.4) validates all inbound task data with a two-tier trust model. REST API bearer token auth and rate limiting (v1.0.0). GitHub webhook HMAC-SHA256 verification. Slack signing secret verification. See [ROADMAP.md](ROADMAP.md) for remaining planned security improvements.
 

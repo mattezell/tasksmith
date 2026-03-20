@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Housekeeping script** — `scripts/housekeeping.sh` deletes stale remote branches and creates version tags for v0.8.0–v0.8.6.
 
 ### Fixed
+- **Plugin lifecycle hooks not firing** — 23 hook registrations across 8 bundled plugins were dead code. Only `onShutdown` worked; now all 8 hook events fire: `onStartup`, `beforeTaskExecute`, `afterTaskExecute`, `beforeContextAssembly`, `afterContextAssembly`, `onMemoryFlush`, `onInboundMessage`, `onShutdown`. Engine hooks use a `hookExecutor` callback bridge injected by the coordinator.
+- **Metrics/insights CLI commands dead code** — plugin-registered commands via `ctx.addCommand()` were never wired to Commander. Added `tasksmith metrics` and `tasksmith insights` as standalone top-level CLI commands.
+- **Workers --cleanup lost in rewrite** — `tasksmith workers --cleanup` and `--dry-run` options were implemented in v0.8.3 but lost during the v1.0.0 Phase 2 CLI rewrite. Restored.
+- **Scheduler config path mismatch** — CLI and coordinator read `config.schedules` but DEFAULT_CONFIG uses `scheduling.tasks`. Now reads both paths with correct precedence.
+- **Phantom config entries** — removed `sms_twilio` (outbound, no implementation) and `mem0` (memory, no implementation) from DEFAULT_CONFIG.
+- **Missing inbound providers in config** — added `github_webhook` and `slack_events` to DEFAULT_CONFIG inbound array so users can discover them.
+- **MCP resource count** — comment header said 5 resources, actually 4.
+- **README phantom documentation** — removed extensive docs for sandbox plugin (removed in v1.0.0), `engine.permissions` allow/deny lists (never implemented), `engine.worktree` config (never implemented), `workspace.templatesDir` (never implemented), `sms_twilio` provider (never implemented), `tasksmith templates` command (removed in v1.0.0). Updated source tree line counts, fixed MCP tool count (12→13), removed duplicate sandbox.ts listing.
 - **Stats script marketing buckets** — added finer thresholds (6k, 8k) between the 5k and 10k buckets. Core at 7,637 lines now correctly claims "under 8,000" instead of jumping to "under 10,000".
 - **Site version** — terminal mockup updated from v0.8.1 to v0.8.6.
 - **Site line counts** — OG meta, numbers section, and creator bio now reflect current "under 8,000" core line count.

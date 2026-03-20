@@ -20,22 +20,22 @@ Memory: hot (MEMORY.md) → warm (JSONL) → cold (gzipped archives)
 
 ```
 src/
-├── engine.ts          ~1,030 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing
-├── mcp.ts             ~700 lines    MCP server (13 tools, 5 resources)
-├── cli.ts             ~630 lines    Commander CLI (submit --from-github-issue, dag --graph)
+├── engine.ts          ~1,050 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing
+├── mcp.ts             ~700 lines    MCP server (13 tools, 4 resources)
+├── cli.ts             ~960 lines    Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── plugins.ts         ~566 lines    Plugin loader, lifecycle hooks
-├── coordinator.ts     ~536 lines    Wires providers + engine + pool + plugins
+├── coordinator.ts     ~547 lines    Wires providers + engine + pool + plugins
 ├── dag.ts             ~450 lines    Task DAG — dependency workflows, cycle detection, Mermaid export
 ├── sanitize.ts        ~375 lines    Input sanitization, trust levels, allowlists
 ├── config.ts          ~324 lines    Workspace resolution, config layering
-├── api.ts             ~260 lines    REST API server (Fastify) — auth + rate limiting
+├── api.ts             ~255 lines    REST API server (Fastify) — auth + rate limiting
 ├── onboarding.ts      ~251 lines    Simplified setup wizard
 ├── scheduler.ts       ~237 lines    Cron-based task scheduling (daemon-level, not session-scoped)
 ├── types.ts           ~203 lines    Interfaces, provider contracts
 ├── pool.ts            ~138 lines    Worker pool, concurrency limiter
 ├── index.ts           ~13 lines     Package exports
 ├── providers/
-│   ├── comms/         ~770 lines    6 outbound + 6 inbound providers (+ GitHub webhook, Slack Events)
+│   ├── comms/         ~770 lines    5 outbound + 5 inbound providers (+ GitHub webhook, Slack Events)
 │   └── memory/        ~241 lines    Three-tier memory (hot/warm/cold)
 ├── plugins/bundled/               8 official plugins (~2,800 lines total)
 └── __tests__/                     Vitest tests
