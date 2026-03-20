@@ -496,9 +496,7 @@ export class Coordinator {
     // Start API server if enabled
     const apiEntry = this.config.communication.inbound.find(e => e.provider === "rest_api" && e.enabled);
     if (apiEntry) {
-      const host = (apiEntry.config.host as string) || "0.0.0.0";
-      const port = (apiEntry.config.port as number) || 8420;
-      await createAPIServer(this.workspace, this.engine, this.memory, host, port);
+      await createAPIServer(this.workspace, this.engine, this.memory, apiEntry.config as any);
     }
 
     // Wait for shutdown signal

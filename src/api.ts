@@ -19,14 +19,83 @@ import type { TaskEngine } from "./engine.js";
 import type { MemoryProvider } from "./types.js";
 import { sanitizeTask } from "./sanitize.js";
 
+export interface APIServerConfig {
+  host?: string;
+  port?: number;
+  authToken?: string;
+  rateLimit?: number; // requests per minute per IP, 0 = unlimited
+}
+
 export async function createAPIServer(
   workspace: string,
   engine: TaskEngine,
   memoryProviders: MemoryProvider[],
-  host = "0.0.0.0",
-  port = 8420,
+  hostOrConfig: string | APIServerConfig = "0.0.0.0",
+  portArg = 8420,
 ) {
+  // Backward-compatible: accept (host, port) or config object
+  const cfg: APIServerConfig = typeof hostOrConfig === "string"
+    ? { host: hostOrConfig, port: portArg }
+    : hostOrConfig;
+
+  const host = cfg.host || "0.0.0.0";
+  const port = cfg.port || 8420;
+  const authToken = cfg.authToken || "";
+  const rateLimitPerMin = cfg.rateLimit ?? 0;
+
   const app = Fastify({ logger: false });
+
+  // ── Bearer token auth ───────────────────────────────────────
+
+  if (authToken) {
+    app.addHook("onRequest", async (req, reply) => {
+      // Skip auth for health check (allows monitoring probes)
+      if (req.url === "/health") return;
+
+      const header = req.headers.authorization || "";
+      if (header !== `Bearer ${authToken}`) {
+        reply.status(401).send({ error: "Unauthorized" });
+      }
+    });
+    console.log("[api] Bearer token auth enabled");
+  }
+
+  // ── Rate limiting (sliding window per IP) ───────────────────
+
+  if (rateLimitPerMin > 0) {
+    const windows = new Map<string, number[]>();
+    const WINDOW_MS = 60_000;
+
+    // Prune stale entries every 5 minutes
+    setInterval(() => {
+      const cutoff = Date.now() - WINDOW_MS;
+      for (const [ip, timestamps] of windows) {
+        const filtered = timestamps.filter(t => t > cutoff);
+        if (filtered.length === 0) windows.delete(ip);
+        else windows.set(ip, filtered);
+      }
+    }, 300_000).unref();
+
+    app.addHook("onRequest", async (req, reply) => {
+      const ip = req.ip;
+      const now = Date.now();
+      const cutoff = now - WINDOW_MS;
+
+      let timestamps = windows.get(ip) || [];
+      timestamps = timestamps.filter(t => t > cutoff);
+      timestamps.push(now);
+      windows.set(ip, timestamps);
+
+      const remaining = Math.max(0, rateLimitPerMin - timestamps.length);
+      reply.header("X-RateLimit-Limit", rateLimitPerMin);
+      reply.header("X-RateLimit-Remaining", remaining);
+
+      if (timestamps.length > rateLimitPerMin) {
+        reply.status(429).send({ error: "Rate limit exceeded", retryAfterMs: WINDOW_MS });
+      }
+    });
+    console.log(`[api] Rate limiting: ${rateLimitPerMin} req/min per IP`);
+  }
 
   // ── Submit task ──────────────────────────────────────────────
 
