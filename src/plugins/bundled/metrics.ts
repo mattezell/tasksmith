@@ -353,7 +353,193 @@ export default function metricsPlugin(ctx: PluginContext, options: Record<string
     },
   });
 
+  // Register CLI command: tasksmith insights
+  ctx.addCommand("insights", {
+    description: "Analyze task history for patterns and actionable observations",
+    options: [
+      { flag: "--days <n>", description: "Analyze last N days", default: "30" },
+      { flag: "--json", description: "Output raw JSON" },
+    ],
+    action: async (args) => {
+      const chalk = (await import("chalk")).default;
+      const metrics = loadMetrics(metricsPath);
+
+      const days = parseInt(args.days || "30") || 30;
+      const cutoff = Date.now() - days * 86400000;
+      const records = metrics.records.filter(r => new Date(r.completedAt).getTime() > cutoff);
+
+      const insights = generateInsights(records, days);
+
+      if (args.json) {
+        console.log(JSON.stringify(insights, null, 2));
+        return;
+      }
+
+      console.log(chalk.bold(`\n  TaskSmith Insights (last ${days} days)\n`));
+
+      if (insights.length === 0) {
+        console.log(chalk.dim("    Not enough data to generate insights. Run more tasks!\n"));
+        return;
+      }
+
+      for (const insight of insights) {
+        const icon = insight.type === "positive" ? chalk.green("▲") :
+          insight.type === "negative" ? chalk.red("▼") : chalk.yellow("●");
+        console.log(`    ${icon} ${insight.message}`);
+      }
+      console.log();
+    },
+  });
+
   ctx.log.info(`Metrics tracking active (${metricsPath})`);
+}
+
+// =============================================================================
+// INSIGHTS ENGINE
+// =============================================================================
+
+interface Insight {
+  type: "positive" | "negative" | "neutral";
+  category: string;
+  message: string;
+}
+
+function generateInsights(records: TaskRecord[], days: number): Insight[] {
+  const insights: Insight[] = [];
+  if (records.length < 3) return insights;
+
+  // ── Model performance comparison ──────────────────────────────
+  const byModel = groupBy(records, r => r.model);
+  if (Object.keys(byModel).length > 1) {
+    let bestModel = "";
+    let bestRate = -1;
+    let worstModel = "";
+    let worstRate = 101;
+
+    for (const [model, recs] of Object.entries(byModel)) {
+      if (recs.length < 2) continue;
+      const rate = recs.filter(r => r.success).length / recs.length;
+      if (rate > bestRate) { bestRate = rate; bestModel = model; }
+      if (rate < worstRate) { worstRate = rate; worstModel = model; }
+    }
+
+    if (bestModel && worstModel && bestModel !== worstModel && bestRate - worstRate > 0.15) {
+      insights.push({
+        type: "neutral",
+        category: "model",
+        message: `${bestModel} succeeds ${Math.round(bestRate * 100)}% vs ${worstModel} at ${Math.round(worstRate * 100)}% — consider routing more work to ${bestModel}`,
+      });
+    }
+  }
+
+  // ── Template-specific failure patterns ────────────────────────
+  const byTemplate = groupBy(records, r => r.template);
+  for (const [template, recs] of Object.entries(byTemplate)) {
+    if (recs.length < 3) continue;
+    const failRate = recs.filter(r => !r.success).length / recs.length;
+    if (failRate > 0.5) {
+      insights.push({
+        type: "negative",
+        category: "template",
+        message: `"${template}" fails ${Math.round(failRate * 100)}% of the time (${recs.length} tasks) — review prompts or validation commands`,
+      });
+    } else if (failRate === 0 && recs.length >= 5) {
+      insights.push({
+        type: "positive",
+        category: "template",
+        message: `"${template}" has a perfect record: ${recs.length} tasks, 0 failures`,
+      });
+    }
+  }
+
+  // ── Iteration bloat — tasks needing many retries ──────────────
+  const avgIter = records.reduce((s, r) => s + r.iterations, 0) / records.length;
+  const highIterTasks = records.filter(r => r.iterations > avgIter * 2 && r.iterations > 3);
+  if (highIterTasks.length > 0) {
+    const pct = Math.round((highIterTasks.length / records.length) * 100);
+    insights.push({
+      type: "negative",
+      category: "efficiency",
+      message: `${highIterTasks.length} tasks (${pct}%) needed >2x avg iterations — prompts may be ambiguous or validation too strict`,
+    });
+  }
+
+  // ── Time-of-day patterns ──────────────────────────────────────
+  const hourBuckets: Record<string, { total: number; fail: number }> = {};
+  for (const r of records) {
+    const hour = new Date(r.startedAt).getHours();
+    const bucket = hour < 6 ? "night (0-6)" : hour < 12 ? "morning (6-12)" : hour < 18 ? "afternoon (12-18)" : "evening (18-24)";
+    if (!hourBuckets[bucket]) hourBuckets[bucket] = { total: 0, fail: 0 };
+    hourBuckets[bucket].total++;
+    if (!r.success) hourBuckets[bucket].fail++;
+  }
+
+  let worstPeriod = "";
+  let worstFailRate = 0;
+  for (const [period, stats] of Object.entries(hourBuckets)) {
+    if (stats.total < 3) continue;
+    const rate = stats.fail / stats.total;
+    if (rate > worstFailRate && rate > 0.4) {
+      worstFailRate = rate;
+      worstPeriod = period;
+    }
+  }
+  if (worstPeriod) {
+    insights.push({
+      type: "neutral",
+      category: "timing",
+      message: `Tasks submitted during ${worstPeriod} fail ${Math.round(worstFailRate * 100)}% — possible infra/rate-limit correlation`,
+    });
+  }
+
+  // ── Cost outliers ─────────────────────────────────────────────
+  const withCost = records.filter(r => r.costUsd && r.costUsd > 0);
+  if (withCost.length >= 5) {
+    const costs = withCost.map(r => r.costUsd!).sort((a, b) => a - b);
+    const median = costs[Math.floor(costs.length / 2)];
+    const expensive = withCost.filter(r => r.costUsd! > median * 3);
+    if (expensive.length > 0) {
+      const top = expensive.sort((a, b) => (b.costUsd || 0) - (a.costUsd || 0))[0];
+      insights.push({
+        type: "negative",
+        category: "cost",
+        message: `${expensive.length} tasks cost >3x median ($${median.toFixed(4)}). Most expensive: ${top.taskId} at $${top.costUsd!.toFixed(4)}`,
+      });
+    }
+  }
+
+  // ── Trend: improving or declining? ────────────────────────────
+  if (records.length >= 10) {
+    const sorted = [...records].sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+    const half = Math.floor(sorted.length / 2);
+    const firstHalf = sorted.slice(0, half);
+    const secondHalf = sorted.slice(half);
+
+    const firstRate = firstHalf.filter(r => r.success).length / firstHalf.length;
+    const secondRate = secondHalf.filter(r => r.success).length / secondHalf.length;
+    const delta = secondRate - firstRate;
+
+    if (Math.abs(delta) > 0.1) {
+      const direction = delta > 0 ? "improving" : "declining";
+      insights.push({
+        type: delta > 0 ? "positive" : "negative",
+        category: "trend",
+        message: `Success rate is ${direction}: ${Math.round(firstRate * 100)}% → ${Math.round(secondRate * 100)}% (first half vs second half)`,
+      });
+    }
+  }
+
+  return insights;
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string): Record<string, T[]> {
+  const groups: Record<string, T[]> = {};
+  for (const item of items) {
+    const k = key(item);
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(item);
+  }
+  return groups;
 }
 
 export { MetricsConfig, MetricsData, TaskRecord };
