@@ -20,6 +20,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **README MCP section** — tools listing expanded from 8→14 tools, resources from 2→5 resource types (directives, templates, projects are dynamic).
 - **Site feature cards** — added Task DAGs, MCP Server, and Smart Model Routing cards (features shipped in v0.8.4 but missing from site).
 - **Site footer** — year updated to 2025–2026.
+- **ESM import bug** — replaced `require("node:fs")` with static import in `dag.ts` restore method.
+
+## [1.0.0] - 2026-03-20
+
+### Added — Phase 1: Unattended Ops Pivot
+- **Stripped reimplemented CC features** — removed WorktreeManager, permission wrappers, sandbox plugin, template system (PROMPT.md → Claude Code Skills format). ~1,985 lines removed.
+- **Claude Code Skills** — 7 SKILL.md files in `.claude/skills/` (ralph-loop, bug-hunt, code-review, doc-gen, research, heartbeat, project-init) replacing old PROMPT.md templates.
+- **Simplified onboarding** — 10 steps → 4 steps (559→251 lines).
+
+### Added — Phase 2: Strengthen Core Differentiators
+- **Rich notifications** — `notify()` now includes cost, failure class, circuit breaker ejection, and contradiction warnings in notification body and metadata.
+- **Cost tracking in metrics plugin** — `costUsd` field on TaskRecord, aggregate rollups (total/avg/by-model/by-template/by-project), cost display in `tasksmith metrics` CLI.
+- **Smart routing savings** — metrics CLI shows "Actual cost vs All-opus cost" with dollar savings and percentage when multi-model usage is detected.
+- **`tasksmith submit --from-github-issue <number>`** — fetches issue via `gh` CLI, constructs a task with title+body as prompt, preserves issue number and labels as task params.
+- **DAG Mermaid visualization** — `tasksmith dag --graph <dagId>` outputs a Mermaid flowchart with color-coded node status (green=done, red=failed, orange=active, gray=cancelled).
+- **GitHub webhook inbound provider** — self-contained HTTP listener with HMAC-SHA256 signature verification. Converts `issues.opened`, `issues.labeled` (with trigger label filtering) into structured tasks, and `issue_comment.created` (with `/tasksmith` prefix) into natural language tasks.
+- **Slack Events API inbound provider** — HTTP listener with Slack signing secret verification and replay attack protection. Handles `app_mention` and `message` events, channel filtering, bot mention stripping. No external dependencies.
+- **Task insights engine** — `tasksmith insights` analyzes task history for 6 pattern types: model performance comparison, template failure rates, iteration bloat detection, time-of-day failure correlation, cost outliers, success rate trends.
+- **REST API auth** — optional bearer token auth via `authToken` config. Skips `/health` for monitoring probes. Closes known debt item.
+- **REST API rate limiting** — sliding-window per-IP rate limiter with configurable requests/minute. Returns `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers. 429 on exceeded.
+
+### Changed
+- `engine.ts` — enriched `notify()` method with diagnostics (cost, failure class, circuit breaker, contradictions).
+- `plugins/bundled/metrics.ts` — added cost fields to TaskRecord and aggregates, smart routing savings calculation, insights engine.
+- `cli.ts` — added `--from-github-issue` to submit, `--graph` to dag command.
+- `dag.ts` — added `toMermaid()` method, fixed ESM import bug in `restore()`.
+- `api.ts` — added bearer token auth and sliding-window rate limiting. Backward-compatible function signature.
+- `coordinator.ts` — passes full config object to API server.
+- `providers/comms/providers.ts` — added GitHubWebhookProvider and SlackEventsProvider to inbound registry.
+- Version bumped to 1.0.0. Package description changed to "The unattended ops layer for Claude Code."
 
 ## [0.8.6] - 2026-02-23
 

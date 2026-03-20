@@ -501,7 +501,9 @@ Scaffold your own: `tasksmith plugin create my-thing`
 | `file_drop` | Always on. Watches `tasks/inbox/` for YAML/JSON files |
 | `mcp` | MCP server (stdio). Any MCP client can submit tasks |
 | `discord_bot` | `@tasksmith fix the auth bug in my-api` â†’ parsed to task |
-| `rest_api` | HTTP server on port 8420 |
+| `rest_api` | HTTP server on port 8420 (with optional auth + rate limiting) |
+| `github_webhook` | Receives GitHub webhook events â€” auto-creates tasks from labeled issues and `/tasksmith` comments |
+| `slack_events` | Slack Events API listener â€” responds to @mentions and channel messages with `/tasksmith` prefix |
 | `watched_folder` | Watch any directory for task files |
 
 The Discord bot parses natural language, structured YAML, and JSON:
@@ -539,9 +541,9 @@ tasksmith run                # Start the engine (with worker pool)
 tasksmith run --mode yolo    # Start with YOLO permissions (--dangerously-skip-permissions)
 tasksmith run --mode autonomous  # Start with autonomous permissions (acceptEdits + scoped tools)
 tasksmith submit             # Submit a task (interactive or with flags)
+tasksmith submit --from-github-issue 42  # Create task from GitHub issue
 tasksmith status             # Queue counts, infrastructure health, directives
 tasksmith init               # Initialize project-local config (.tasksmith/)
-tasksmith templates          # List all templates with sources
 tasksmith info               # Show workspace resolution and config paths
 tasksmith doctor             # Diagnose common issues
 tasksmith memory             # Browse/search memory (--hot, --search, --recent)
@@ -551,10 +553,12 @@ tasksmith workers --cleanup  # Remove stale worktrees (--dry-run to preview)
 tasksmith dag -f pipeline.yaml  # Submit a DAG workflow
 tasksmith dag --list         # List active DAGs
 tasksmith dag --status <id>  # Check DAG status
+tasksmith dag --graph <id>   # Output Mermaid flowchart
 tasksmith mcp                # Start MCP server (stdio transport)
 tasksmith plugin list        # List bundled + community plugins
 tasksmith plugin create <n>  # Scaffold a new plugin
-tasksmith metrics            # Task execution stats (metrics plugin)
+tasksmith metrics            # Task execution stats + cost tracking (metrics plugin)
+tasksmith insights           # Analyze task history for patterns (metrics plugin)
 tasksmith docker             # Container status (docker plugin)
 tasksmith pg                 # Query task history (postgres plugin)
 tasksmith proxmox            # VM status (proxmox plugin)
@@ -678,18 +682,31 @@ The bot extracts params from natural language in three ways:
 
 ## REST API
 
-Enable the `rest_api` inbound provider for HTTP access on port 8420.
+Enable the `rest_api` inbound provider for HTTP access on port 8420. Optional bearer token auth and rate limiting available.
+
+```yaml
+# tasksmith.yaml
+communication:
+  inbound:
+    - provider: rest_api
+      enabled: true
+      config:
+        port: 8420
+        authToken: "${TASKSMITH_API_TOKEN}"  # omit for no auth
+        rateLimit: 60                         # requests/min per IP (0 = unlimited)
+```
 
 ```bash
-# Submit a task (with params)
+# Submit a task (with auth)
 curl -X POST http://localhost:8420/tasks \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-token-here" \
   -d '{"template": "ralph-loop", "prompt": "Add tests", "project": "my-api", "params": {"validation_command": "npm test"}}'
 
 # List tasks
-curl http://localhost:8420/tasks?status=completed
+curl -H "Authorization: Bearer your-token-here" http://localhost:8420/tasks?status=completed
 
-# Health check
+# Health check (no auth required)
 curl http://localhost:8420/health
 ```
 
@@ -733,7 +750,6 @@ Add to your MCP client config (e.g., `claude_desktop_config.json`):
 | `retry_task` | Retry a failed task (copies back to inbox with a new ID) |
 | `search_memory` | Search TaskSmith's memory for past results and learnings |
 | `store_memory` | Store a fact, decision, or learning in memory |
-| `list_templates` | Show available task templates |
 | `list_projects` | Show configured projects |
 | `queue_status` | System overview: queue counts, directives, memory providers |
 | `health_check` | System health and version info |
@@ -748,7 +764,6 @@ Add to your MCP client config (e.g., `claude_desktop_config.json`):
 | System Status | `tasksmith://status` | Queue counts, version, workspace path (JSON) |
 | Memory | `tasksmith://memory` | Current MEMORY.md hot memory contents |
 | Directives | `tasksmith://directives/{name}` | SOUL.md, USER.md, CONVENTIONS.md, etc. |
-| Templates | `tasksmith://templates/{name}` | Template PROMPT.md contents |
 | Projects | `tasksmith://projects/{name}` | Project CLAUDE.md and structure |
 
 Input from MCP clients is sanitized with the same security layer as REST API and Discord inputs (external trust level).
@@ -843,6 +858,8 @@ communication:
       enabled: true
       config:
         port: 8420
+        authToken: "${TASKSMITH_API_TOKEN}"
+        rateLimit: 60
 
 plugins:
   - metrics
@@ -1057,7 +1074,7 @@ TaskSmith executes AI-generated code on your machine. This is the entire point â
 
 **Git operations.** Worktree PR titles and commit messages include task content. Crafted prompts could inject unexpected content into your git history.
 
-**No authentication.** The REST API (port 8420) has no auth by default. The Discord bot accepts commands from anyone in the configured channel.
+**No authentication on Discord.** The Discord bot accepts commands from anyone in the configured channel. The REST API supports optional bearer token auth (see Configuration).
 
 ### Mitigations (Current)
 
@@ -1076,14 +1093,14 @@ TaskSmith executes AI-generated code on your machine. This is the entire point â
 - **Start with `supervised` mode** until you're comfortable with how tasks execute
 - **Use `autonomous` mode** with a restrictive `engine.permissions.allow` list for unattended operation
 - **Only use `yolo` mode** in isolated environments (Docker, VM, disposable worktrees)
-- **Never expose the REST API to the internet** without adding authentication
+- **Enable REST API auth** (`authToken` config) before exposing to the network
 - **Restrict Discord bot** to a private channel with trusted users only
 - **Use Docker isolation** for untrusted or high-risk tasks
 - **Review task files** before dropping them in inbox if they come from external sources
 - **Use the `pr` worktree strategy** (default) so changes are reviewed before merging
 - **Customize deny lists** per-project to block project-specific sensitive operations
 
-Input sanitization (v0.8.4) validates all inbound task data with a two-tier trust model. See [ROADMAP.md](ROADMAP.md) for remaining planned security improvements including API authentication and human-in-the-loop approval gates.
+Input sanitization (v0.8.4) validates all inbound task data with a two-tier trust model. REST API bearer token auth and rate limiting (v1.0.0). GitHub webhook HMAC-SHA256 verification. Slack signing secret verification. See [ROADMAP.md](ROADMAP.md) for remaining planned security improvements.
 
 ---
 
@@ -1098,7 +1115,7 @@ npm link           # makes `tasksmith` available globally
 ```
 
 ```bash
-tasksmith --version    # 0.8.4
+tasksmith --version    # 1.0.0
 tasksmith doctor       # check prerequisites
 ```
 

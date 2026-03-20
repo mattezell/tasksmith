@@ -22,47 +22,53 @@
 | **0.8.4** | ✅ Done | Input sanitization, MCP server mode, smart model routing, task DAG |
 | **0.8.5** | ✅ Done | Validation worktree targeting, sanitizer local trust bypass, `medium` priority |
 | **0.8.6** | ✅ Done | Worktree setup (copy node_modules), circuit breaker, diagnostics fix |
+| **1.0.0** | ✅ Done | Unattended ops pivot — stripped CC overlap, Phase 2 differentiators |
 
 ---
 
-## v0.8.x — Security Hardening (Next)
+## v1.0.0 — The Pivot (Complete)
 
-The execution layer now has two complementary security controls: **permission modes** (v0.8.0) control Claude Code's tool access via CLI flags, and the **sandbox plugin** (v0.8.1) adds OS-level filesystem/network boundaries. These gaps remain:
+### Phase 1: Cut CC Overlap ✅
+Removed WorktreeManager, permission wrappers, sandbox plugin, template system. Migrated to Claude Code Skills. ~1,985 lines removed.
 
-- ~~**Input sanitization**~~ — ✅ Done in v0.8.4. Allowlist-based validation layer for all inbound providers. Trust-level system (local vs external), path traversal prevention, command injection protection, permission escalation blocking, type coercion, and length limits.
-- **REST API authentication** — Port 8420 has no auth by default. Token-based auth with middleware.
+### Phase 2: Strengthen Differentiators ✅
+- ~~**Rich notifications**~~ — ✅ Cost, failure class, circuit breaker, contradictions in notify body.
+- ~~**Cost tracking**~~ — ✅ Per-task, per-model, per-template, per-project cost aggregation in metrics plugin.
+- ~~**Smart routing savings**~~ — ✅ "Actual cost vs all-opus cost" comparison in `tasksmith metrics`.
+- ~~**GitHub issue intake**~~ — ✅ `tasksmith submit --from-github-issue <number>` via gh CLI.
+- ~~**GitHub webhook provider**~~ — ✅ InboundCommsProvider with HMAC-SHA256, label-based filtering, comment triggers.
+- ~~**Slack Events provider**~~ — ✅ InboundCommsProvider with signing secret verification, app_mention + message handling.
+- ~~**DAG visualization**~~ — ✅ `tasksmith dag --graph <dagId>` outputs Mermaid flowchart.
+- ~~**Task insights**~~ — ✅ `tasksmith insights` — model comparison, failure patterns, cost outliers, trends.
+- ~~**REST API auth**~~ — ✅ Bearer token auth + sliding-window rate limiting. Closes known debt.
+- ~~**Input sanitization**~~ — ✅ Done in v0.8.4.
+- ~~**MCP server**~~ — ✅ Done in v0.8.4. 13 tools, 5 resources, stdio transport.
+- ~~**Smart model routing**~~ — ✅ Done in v0.8.4.
+- ~~**Task DAGs**~~ — ✅ Done in v0.8.4.
+
+---
+
+## v1.0.x — Security Remaining
+
 - **Discord bot channel scoping** — Bot currently accepts commands from anyone in the server. Guild + channel allowlist enforcement.
-- **Human-in-the-loop approval gates** — High-risk task types (e.g., `auto-merge` worktree strategy) should require explicit human confirmation before execution.
+- **Human-in-the-loop approval gates** — High-risk task types should require explicit human confirmation before execution.
 - **Prompt injection documentation** — Expand SECURITY.md with concrete examples and mitigation patterns.
 
 ---
 
-## v0.8.x / v0.9.0 — Power Features (Next)
+## v1.1.0 — Ecosystem (Next)
 
-~~**MCP server mode**~~ ✅ Done in v0.8.4 — `tasksmith mcp` starts stdio MCP server with 8 tools and 2 resources. Any MCP client can submit tasks, check status, search memory.
+**Ship as Claude Code plugin**
+`.claude/plugins/tasksmith/` — so Claude Code can natively submit tasks to TaskSmith.
 
-~~**Smart model routing**~~ ✅ Done in v0.8.4 — `model: auto` routes based on template type (haiku/sonnet/opus defaults), escalates on failure, and uses prompt length as a complexity signal.
+**GitHub Actions integration**
+`tasksmith ci` — drops tasks from GitHub Actions workflows. Native PR comment trigger. `tasksmith watch` for auto-submitting labeled issues.
 
-~~**Task DAG (dependency workflows)**~~ ✅ Done in v0.8.4 — `depends_on` field, cycle detection, failure propagation, persistence. CLI `tasksmith dag`, MCP tools `submit_dag`/`dag_status`/`list_dags`.
-
-**Cost tracking**
-Per-iteration cost is now logged from Claude Code's JSON output (v0.8.2). Remaining: aggregate cost per task, per project, per template. `tasksmith metrics --cost`. Supports Anthropic API pricing table.
-
----
-
-## v1.0.0 — Ecosystem
-
-**Template marketplace**
-Curated community template registry at tasksmith.dev/templates. Pay-to-list for premium templates (monetization surface). Free tier for community contributions.
-
-**Community template repo**
-Official `@tasksmith-dev/templates` GitHub org. PR-based submissions, quality bar, automated testing.
+**Cost dashboard**
+`tasksmith costs` — detailed cost breakdown with time-series data, budget alerts, spend forecasting.
 
 **Cloud sync**
 Sync memory, task history, and config across machines. Encrypted. Optional.
-
-**CI/CD automation**
-`tasksmith ci` — drops tasks from GitHub Actions, GitLab CI, or any webhook. Native PR comment trigger.
 
 **Context asset generation**
 `tasksmith context generate` — scaffolds SOUL.md, USER.md, CONVENTIONS.md from a questionnaire. Smart defaults from detected project stack.
