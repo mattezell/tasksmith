@@ -561,10 +561,110 @@ program
 
 program
   .command("workers")
-  .description("Show worker pool configuration")
-  .action(async () => {
+  .description("Show worker pool and worktree configuration")
+  .option("--cleanup", "Remove stale worktrees for completed/failed/orphaned tasks")
+  .option("--dry-run", "Show what --cleanup would remove without actually removing")
+  .action(async (opts) => {
     const ws = resolveWorkspace(program.opts().dir);
     const config = loadConfig(ws);
+
+    // ── Cleanup mode ──────────────────────────────────────────────
+    if (opts.cleanup || opts.dryRun) {
+      const { spawnSync: ss } = await import("node:child_process");
+      const wtBaseDir = join(ws, "worktrees");
+      const activeDir = join(ws, "tasks", "active");
+      const dryRun = opts.dryRun && !opts.cleanup;
+
+      if (!existsSync(wtBaseDir)) {
+        console.log(chalk.dim("\n  No worktree directory found. Nothing to clean up.\n"));
+        return;
+      }
+
+      const activeTasks = new Set(
+        existsSync(activeDir)
+          ? readdirSync(activeDir).filter(f => isTaskFile(f)).map(f => f.replace(/\.(yaml|yml|json)$/, ""))
+          : []
+      );
+
+      const entries = readdirSync(wtBaseDir).filter(e =>
+        existsSync(join(wtBaseDir, e)) && e.startsWith("task-")
+      );
+
+      if (entries.length === 0) {
+        console.log(chalk.green("\n  No worktrees found. Clean.\n"));
+        return;
+      }
+
+      interface StaleWorktree { taskId: string; path: string; branch: string; repoPath: string; reason: string }
+      const stale: StaleWorktree[] = [];
+      const active: string[] = [];
+
+      for (const taskId of entries) {
+        const wtPath = join(wtBaseDir, taskId);
+        if (activeTasks.has(taskId)) { active.push(taskId); continue; }
+
+        let reason = "orphaned";
+        if (existsSync(join(ws, "tasks", "completed", `${taskId}.yaml`))) reason = "completed";
+        else if (existsSync(join(ws, "tasks", "failed", `${taskId}.yaml`))) reason = "failed";
+
+        const branchRes = ss("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: wtPath, encoding: "utf-8", stdio: "pipe" });
+        const branch = branchRes.status === 0 ? (branchRes.stdout || "").trim() : "unknown";
+
+        const commonRes = ss("git", ["rev-parse", "--git-common-dir"], { cwd: wtPath, encoding: "utf-8", stdio: "pipe" });
+        let repoPath = "";
+        if (commonRes.status === 0) {
+          const gitDir = (commonRes.stdout || "").trim();
+          repoPath = gitDir.endsWith("/.git") ? gitDir.slice(0, -5) : gitDir;
+        }
+
+        stale.push({ taskId, path: wtPath, branch, repoPath, reason });
+      }
+
+      console.log(chalk.bold(`\n  Worktree Cleanup${dryRun ? chalk.yellow(" (dry run)") : ""}\n`));
+      if (active.length > 0) {
+        console.log(`    ${chalk.green("Active")} (skipping): ${active.length}`);
+        for (const id of active) console.log(`      ${chalk.dim("→")} ${id}`);
+      }
+      if (stale.length === 0) {
+        console.log(chalk.green("    No stale worktrees found.\n"));
+        return;
+      }
+
+      console.log(`    ${chalk.yellow("Stale")} (to remove): ${stale.length}\n`);
+      for (const s of stale) {
+        const reasonColor = s.reason === "completed" ? chalk.green : s.reason === "failed" ? chalk.red : chalk.yellow;
+        console.log(`      ${reasonColor(s.reason.padEnd(10))} ${s.taskId}`);
+        console.log(`      ${chalk.dim(`branch: ${s.branch}`)}`);
+        if (s.repoPath) console.log(`      ${chalk.dim(`repo:   ${s.repoPath}`)}`);
+      }
+
+      if (dryRun) {
+        console.log(chalk.dim(`\n    Run ${chalk.bold("tasksmith workers --cleanup")} to remove these.\n`));
+        return;
+      }
+
+      console.log();
+      let removed = 0, failed = 0;
+      for (const s of stale) {
+        try {
+          if (s.repoPath) {
+            ss("git", ["worktree", "remove", "--force", s.path], { cwd: s.repoPath, encoding: "utf-8", stdio: "pipe" });
+            const branchDel = ss("git", ["branch", "-D", s.branch], { cwd: s.repoPath, encoding: "utf-8", stdio: "pipe" });
+          }
+          const { rmSync } = await import("node:fs");
+          if (existsSync(s.path)) rmSync(s.path, { recursive: true, force: true });
+          console.log(`    ${chalk.green("✓")} Removed ${s.taskId} (${s.reason})`);
+          removed++;
+        } catch (e: any) {
+          console.log(`    ${chalk.red("✗")} Failed to remove ${s.taskId}: ${e.message}`);
+          failed++;
+        }
+      }
+      console.log(`\n    ${chalk.green(`${removed} removed`)}${failed > 0 ? `, ${chalk.red(`${failed} failed`)}` : ""}\n`);
+      return;
+    }
+
+    // ── Info mode (default) ───────────────────────────────────────
     const engine = (config as any).engine || {};
 
     console.log(chalk.bold("\n  Worker Pool Configuration\n"));
@@ -577,6 +677,31 @@ program
       const count = existsSync(d) ? readdirSync(d).filter(f => isTaskFile(f)).length : 0;
       const color = dir === "active" ? chalk.yellow : dir === "failed" ? chalk.red : dir === "completed" ? chalk.green : chalk.white;
       console.log(`    ${label.padEnd(12)} ${color(String(count))}`);
+    }
+
+    // Show worktrees on disk
+    const wtBaseDir = join(ws, "worktrees");
+    if (existsSync(wtBaseDir)) {
+      const wtEntries = readdirSync(wtBaseDir).filter(e => e.startsWith("task-"));
+      if (wtEntries.length > 0) {
+        const activeDir = join(ws, "tasks", "active");
+        const activeTasks = new Set(
+          existsSync(activeDir)
+            ? readdirSync(activeDir).filter(f => isTaskFile(f)).map(f => f.replace(/\.(yaml|yml|json)$/, ""))
+            : []
+        );
+        console.log(chalk.bold(`\n    Worktrees on Disk (${wtEntries.length}):`));
+        for (const taskId of wtEntries) {
+          const isActive = activeTasks.has(taskId);
+          const icon = isActive ? chalk.green("●") : chalk.yellow("○");
+          const label = isActive ? "active" : "stale";
+          console.log(`      ${icon} ${taskId} ${chalk.dim(`(${label})`)}`);
+        }
+        const staleCount = wtEntries.filter(id => !activeTasks.has(id)).length;
+        if (staleCount > 0) {
+          console.log(chalk.dim(`\n    ${staleCount} stale — run ${chalk.bold("tasksmith workers --cleanup")} to remove`));
+        }
+      }
     }
 
     console.log(chalk.dim(`\n    Configure concurrency in tasksmith.yaml:`));
@@ -593,7 +718,7 @@ program
   .action(async () => {
     const ws = resolveWorkspace(program.opts().dir);
     const config = loadConfig(ws);
-    const schedules = (config as any).schedules as Array<Record<string, unknown>> | undefined;
+    const schedules = ((config as any).scheduling?.tasks || (config as any).schedules) as Array<Record<string, unknown>> | undefined;
 
     console.log(chalk.bold("\n  Task Schedules\n"));
 

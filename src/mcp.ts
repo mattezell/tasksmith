@@ -12,7 +12,7 @@
  *   search_memory, store_memory, list_projects,
  *   queue_status, health_check, submit_dag, dag_status, list_dags
  *
- * Resources (5):
+ * Resources (4):
  *   tasksmith://status, tasksmith://memory,
  *   tasksmith://directives/{name}, tasksmith://projects/{name}
  *

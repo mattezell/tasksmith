@@ -45,13 +45,14 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
       { provider: "ntfy", enabled: false, config: { topic: "tasksmith", server: "https://ntfy.sh", priority: "default" } },
       { provider: "slack_webhook", enabled: false, config: { webhookUrl: "" } },
       { provider: "email", enabled: false, config: { smtpHost: "", smtpPort: 587, smtpUser: "", smtpPass: "", fromAddr: "", toAddr: "" } },
-      { provider: "sms_twilio", enabled: false, config: { accountSid: "", authToken: "", fromNumber: "", toNumber: "" } },
       { provider: "webhook_generic", enabled: false, config: { url: "", method: "POST", headers: {} } },
     ],
     inbound: [
       { provider: "file_drop", enabled: true, config: {} },
       { provider: "discord_bot", enabled: false, config: { botToken: "", channelId: "", commandPrefix: "@tasksmith" } },
       { provider: "rest_api", enabled: false, config: { host: "0.0.0.0", port: 8420 } },
+      { provider: "github_webhook", enabled: false, config: { port: 8421, secret: "", triggerLabels: ["tasksmith"] } },
+      { provider: "slack_events", enabled: false, config: { port: 8422, signingSecret: "", channelIds: [] } },
       { provider: "watched_folder", enabled: false, config: { path: "" } },
     ],
   },
@@ -59,7 +60,6 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
     hot: { provider: "markdown", config: { memoryFile: "directives/MEMORY.md", dailyLogDir: "memory", maxHotTokens: 2000, loadDays: 2 } },
     warm: [
       { provider: "jsonl_logs", enabled: true, config: { logDir: "memory/logs" } },
-      { provider: "mem0", enabled: false, config: { serverUrl: "http://localhost:8080", searchType: "hybrid" } },
     ],
     cold: { provider: "compressed_json", config: { archiveDir: "memory/sessions", compress: true } },
   },

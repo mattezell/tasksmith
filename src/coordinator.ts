@@ -488,7 +488,7 @@ export class Coordinator {
     }, dashboardMs);
 
     // Start scheduler if schedules are configured
-    const schedules = (this.config as any).schedules as Array<Record<string, unknown>> | undefined;
+    const schedules = ((this.config as any).scheduling?.tasks || (this.config as any).schedules) as Array<Record<string, unknown>> | undefined;
     if (schedules && schedules.length > 0) {
       const inboxDir = join(this.workspace, "tasks", "inbox");
       this.scheduler = new Scheduler(
