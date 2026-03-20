@@ -271,6 +271,9 @@ export class TaskEngine {
   hotMemory: MarkdownMemoryProvider | null = null;
   archiver: SessionArchiver | null = null;
 
+  /** Hook executor — injected by coordinator to bridge plugins into engine internals. */
+  hookExecutor: ((event: string, data: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null;
+
   private processing = new Set<string>();
 
   constructor(workspace: string, config: Record<string, any>) {
@@ -305,7 +308,11 @@ export class TaskEngine {
 
   // ── Context Assembly (Compiled Prompt Pattern) ─────────────────────
 
-  assembleContext(task: Task): string {
+  async assembleContext(task: Task): Promise<string> {
+    if (this.hookExecutor) {
+      await this.hookExecutor("beforeContextAssembly", { task });
+    }
+
     const parts: string[] = [];
     const dd = join(this.workspace, "directives");
 
@@ -339,7 +346,14 @@ export class TaskEngine {
 
     parts.push(task.prompt);
 
-    return parts.join("\n\n");
+    let prompt = parts.join("\n\n");
+
+    if (this.hookExecutor) {
+      const result = await this.hookExecutor("afterContextAssembly", { task, prompt });
+      if (typeof result.prompt === "string") prompt = result.prompt;
+    }
+
+    return prompt;
   }
 
   // ── Claude Code Invocation ─────────────────────────────────────────
@@ -702,7 +716,7 @@ export class TaskEngine {
         const { model: iterModel } = this.resolveModel(task, i, lastErr !== "");
         task.model = iterModel;
 
-        let prompt = this.assembleContext(task);
+        let prompt = await this.assembleContext(task);
 
         if (lastErr) {
           prompt += `\n\n<previous_error>\nIteration ${i - 1} failed:\n${lastErr}\nFix the issues and try again.\n</previous_error>`;
@@ -853,6 +867,9 @@ export class TaskEngine {
     for (const p of this.memory) {
       try { await p.store(entry); } catch (e) { console.error(`[memory:${p.name}] flush failed:`, e); }
     }
+    if (this.hookExecutor) {
+      await this.hookExecutor("onMemoryFlush", { entry: { content: entry.content, id: task.id, type: entry.category } });
+    }
   }
 
   private async postMemory(task: Task): Promise<void> {
@@ -863,6 +880,9 @@ export class TaskEngine {
     const entry: MemoryEntry = { content: summary, source: task.id, category: "task_result", importance: ok ? 0.7 : 0.8, timestamp: new Date() };
     for (const p of this.memory) {
       try { await p.store(entry); } catch (e) { console.error(`[memory:${p.name}] post failed:`, e); }
+    }
+    if (this.hookExecutor) {
+      await this.hookExecutor("onMemoryFlush", { entry: { content: entry.content, id: task.id, type: entry.category } });
     }
   }
 

@@ -113,6 +113,8 @@ export class Coordinator {
     this.engine.memory = this.memory;
     this.engine.hotMemory = this.hotMemory;
     this.engine.archiver = this.archiver;
+    this.engine.hookExecutor = (event, data) =>
+      this.pluginManager.executeHooks(event as any, data);
   }
 
   // ── Inbound Handler ────────────────────────────────────────────
@@ -142,6 +144,10 @@ export class Coordinator {
   }
 
   private async handleInbound(msg: InboundMessage): Promise<void> {
+    // Allow plugins to inspect/transform inbound messages
+    const hookResult = await this.pluginManager.executeHooks("onInboundMessage", { msg });
+    if (hookResult.msg) msg = hookResult.msg as InboundMessage;
+
     const content = msg.content.trim();
 
     // Try JSON parse first (Discord/chat users may paste JSON)
@@ -374,6 +380,9 @@ export class Coordinator {
 
     this.buildEngine();
 
+    // Fire onStartup hooks (postgres connects, proxmox/cloudflare verify, semantic-memory loads)
+    await this.pluginManager.executeHooks("onStartup");
+
     // Initialize memory
     for (const p of this.memory) await p.initialize();
 
@@ -437,7 +446,10 @@ export class Coordinator {
       this.workspace,
       { concurrency },
       async (task) => {
+        await this.pluginManager.executeHooks("beforeTaskExecute", { task });
         await this.engine.execute(task);
+        const ok = task.status === "completed";
+        await this.pluginManager.executeHooks("afterTaskExecute", { task, ok });
         // Check for DAG unblocking after every task completion
         this.handleDAGCompletion(task);
       },
