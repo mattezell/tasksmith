@@ -51,7 +51,7 @@ Removed WorktreeManager, permission wrappers, sandbox plugin, template system. M
 ## v1.0.x — Security Remaining
 
 - ~~**Discord bot channel scoping**~~ — ✅ Done. Guild + channel allowlist enforcement. Warns on startup if no restrictions configured.
-- **Human-in-the-loop approval gates** — High-risk task types should require explicit human confirmation before execution.
+- ~~**Human-in-the-loop approval gates**~~ — ✅ Done. Rule-based matching (template, params, source). Tasks parked in `pending_approval/`, operator notified. `tasksmith approve`/`reject` CLI. Auto-reject on timeout. Off by default.
 - **Prompt injection documentation** — Expand SECURITY.md with concrete examples and mitigation patterns.
 
 ---

@@ -6,7 +6,7 @@
  */
 
 import { join, dirname } from "node:path";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import yaml from "js-yaml";
 import chalk from "chalk";
 import { v4 as uuidv4 } from "uuid";
@@ -51,6 +51,9 @@ export class Coordinator {
 
   /** Pending DAG tasks: task ID → task data. Held until deps complete. */
   private dagPending = new Map<string, Task>();
+
+  /** Pending approval tasks: task ID → { task, source, timeout handle }. */
+  private approvalPending = new Map<string, { task: Task; source: string; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(workspace: string, config: TaskSmithConfig) {
     this.workspace = workspace;
@@ -130,17 +133,139 @@ export class Coordinator {
     }
   }
 
+  // ── Approval Gates ─────────────────────────────────────────────
+
   /**
-   * Submit a parsed task directly to the pool, bypassing the inbox.
-   * Writes to active/ (not inbox/) so the file watcher and scanInbox
-   * don't re-process it, avoiding the watcher -> handleInbound -> write
-   * -> watcher infinite loop.
+   * Check if a task matches any approval gate rules.
+   * Returns the matched rule description, or null if no gate applies.
    */
-  private submitTask(task: Task, source: string): void {
+  private requiresApproval(task: Task, source: string): string | null {
+    const gates = (this.config as any).engine?.approvalGates;
+    if (!gates?.enabled) return null;
+
+    const rules = gates.requireApproval as Array<Record<string, unknown>> | undefined;
+    if (!rules || rules.length === 0) return null;
+
+    for (const rule of rules) {
+      // Match by template
+      if (rule.template) {
+        const templates = Array.isArray(rule.template) ? rule.template : [rule.template];
+        if (templates.includes(task.template)) return `template=${task.template}`;
+      }
+
+      // Match by inbound source
+      if (rule.source) {
+        const sources = Array.isArray(rule.source) ? rule.source : [rule.source];
+        if (sources.includes(source)) return `source=${source}`;
+      }
+
+      // Match by task params (all specified keys must match)
+      if (rule.params && typeof rule.params === "object") {
+        const paramRules = rule.params as Record<string, unknown>;
+        const allMatch = Object.entries(paramRules).every(
+          ([k, v]) => task.params[k] === v
+        );
+        if (allMatch) return `params={${Object.keys(paramRules).join(",")}}`;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Park a task for approval. Sends notification and sets timeout.
+   */
+  private async parkForApproval(task: Task, source: string, matchedRule: string): Promise<void> {
+    const gates = (this.config as any).engine?.approvalGates || {};
+    const timeoutMin = (gates.timeoutMinutes as number) || 60;
+
+    // Write to a pending_approval directory
+    const approvalDir = join(this.workspace, "tasks", "pending_approval");
+    mkdirSync(approvalDir, { recursive: true });
+    writeFileSync(join(approvalDir, `${task.id}.yaml`), yaml.dump({ ...task, status: "pending_approval" }));
+
+    // Set timeout
+    const timer = setTimeout(() => {
+      this.handleApprovalDecision(task.id, false, "timeout");
+    }, timeoutMin * 60_000);
+    timer.unref();
+
+    this.approvalPending.set(task.id, { task, source, timer });
+
+    // Notify operator
+    const title = `⏳ Approval required: ${task.template} (${task.id})`;
+    const body = [
+      `Task requires approval (matched rule: ${matchedRule})`,
+      `Prompt: ${task.prompt.slice(0, 300)}`,
+      `Project: ${task.project || "N/A"} | Model: ${task.model} | Priority: ${task.priority}`,
+      `Source: ${source}`,
+      ``,
+      `Approve: tasksmith approve ${task.id}`,
+      `Reject:  tasksmith reject ${task.id}`,
+      `Auto-rejects in ${timeoutMin} minutes.`,
+    ].join("\n");
+
+    const notification = { title, body, priority: "high" as any, taskId: task.id };
+    for (const p of this.outbound) {
+      try { await p.send(notification); } catch { /* best effort */ }
+    }
+
+    console.log(chalk.yellow(`[approval] ${task.id} parked — matched rule: ${matchedRule}. Awaiting approval (${timeoutMin}min timeout)`));
+  }
+
+  /**
+   * Handle an approval or rejection decision.
+   * Called by CLI (approve/reject commands), REST API, or timeout.
+   */
+  handleApprovalDecision(taskId: string, approved: boolean, decidedBy: string): boolean {
+    const entry = this.approvalPending.get(taskId);
+    if (!entry) return false;
+
+    clearTimeout(entry.timer);
+    this.approvalPending.delete(taskId);
+
+    // Remove from pending_approval directory
+    const approvalFile = join(this.workspace, "tasks", "pending_approval", `${taskId}.yaml`);
+    try { unlinkSync(approvalFile); } catch { /* already removed */ }
+
+    if (approved) {
+      console.log(chalk.green(`[approval] ${taskId} approved by ${decidedBy}`));
+      this.submitTaskDirect(entry.task, entry.source);
+    } else {
+      entry.task.status = "failed";
+      entry.task.error = `Rejected by ${decidedBy}`;
+      entry.task.completedAt = new Date().toISOString();
+      const failFile = join(this.workspace, "tasks", "failed", `${taskId}.yaml`);
+      writeFileSync(failFile, yaml.dump(entry.task));
+      console.log(chalk.red(`[approval] ${taskId} rejected by ${decidedBy}`));
+    }
+
+    return true;
+  }
+
+  /**
+   * Submit directly to pool — no approval check. Used after approval
+   * and by the inbox scanner (file_drop tasks are local/trusted).
+   */
+  private submitTaskDirect(task: Task, source: string): void {
     const activeFile = join(this.workspace, "tasks", "active", `${task.id}.yaml`);
     writeFileSync(activeFile, yaml.dump(task));
     this.pool!.submit(task);
     console.log(`[coordinator] Submitted ${task.id} from ${source}`);
+  }
+
+  /**
+   * Submit a parsed task — checks approval gates first.
+   * If approval is required, parks the task and notifies.
+   * Otherwise submits directly to the pool.
+   */
+  private submitTask(task: Task, source: string): void {
+    const matchedRule = this.requiresApproval(task, source);
+    if (matchedRule) {
+      this.parkForApproval(task, source, matchedRule);
+      return;
+    }
+    this.submitTaskDirect(task, source);
   }
 
   private async handleInbound(msg: InboundMessage): Promise<void> {
@@ -462,7 +587,7 @@ export class Coordinator {
       try {
         const tasks = this.engine.pickupAll();
         for (const task of tasks) {
-          this.pool!.submit(task);
+          this.submitTask(task, task.sourceFile || "file_drop");
         }
       } catch (e) { console.error("[coordinator] scan error:", e); }
     }, 3000);

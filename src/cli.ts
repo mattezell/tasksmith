@@ -20,7 +20,7 @@
 
 import { Command } from "commander";
 import chalk from "chalk";
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
@@ -708,6 +708,66 @@ program
     console.log(chalk.dim("    engine:"));
     console.log(chalk.dim("      concurrency: 3"));
     console.log();
+  });
+
+// ── APPROVE / REJECT ────────────────────────────────────────────────
+
+program
+  .command("approve <taskId>")
+  .description("Approve a task pending human-in-the-loop review")
+  .action(async (taskId: string) => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const approvalDir = join(ws, "tasks", "pending_approval");
+    const approvalFile = join(approvalDir, `${taskId}.yaml`);
+
+    if (!existsSync(approvalFile)) {
+      console.error(chalk.red(`\n  No pending approval found for ${taskId}\n`));
+      console.log(chalk.dim("  Check pending approvals:"));
+      if (existsSync(approvalDir)) {
+        const pending = readdirSync(approvalDir).filter(f => isTaskFile(f));
+        if (pending.length > 0) {
+          for (const f of pending) console.log(`    ${chalk.yellow("⏳")} ${f.replace(/\.(yaml|yml|json)$/, "")}`);
+        } else {
+          console.log(chalk.dim("    (none)"));
+        }
+      }
+      console.log();
+      process.exit(1);
+    }
+
+    // Read task, move to inbox for pickup by running engine
+    const taskData = readFileSync(approvalFile, "utf-8");
+    const task = yaml.load(taskData) as Record<string, unknown>;
+    task.status = "pending";
+    (task as any)._approvedBy = "cli";
+    const inboxFile = join(ws, "tasks", "inbox", `${taskId}.yaml`);
+    writeFileSync(inboxFile, yaml.dump(task));
+    unlinkSync(approvalFile);
+    console.log(chalk.green(`\n  ✓ Approved ${taskId} — moved to inbox for execution\n`));
+  });
+
+program
+  .command("reject <taskId>")
+  .description("Reject a task pending human-in-the-loop review")
+  .option("-r, --reason <reason>", "Rejection reason")
+  .action(async (taskId: string, opts: { reason?: string }) => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const approvalFile = join(ws, "tasks", "pending_approval", `${taskId}.yaml`);
+
+    if (!existsSync(approvalFile)) {
+      console.error(chalk.red(`\n  No pending approval found for ${taskId}\n`));
+      process.exit(1);
+    }
+
+    const taskData = readFileSync(approvalFile, "utf-8");
+    const task = yaml.load(taskData) as Record<string, unknown>;
+    task.status = "failed";
+    task.error = `Rejected via CLI${opts.reason ? `: ${opts.reason}` : ""}`;
+    task.completedAt = new Date().toISOString();
+    const failFile = join(ws, "tasks", "failed", `${taskId}.yaml`);
+    writeFileSync(failFile, yaml.dump(task));
+    unlinkSync(approvalFile);
+    console.log(chalk.red(`\n  ✗ Rejected ${taskId}\n`));
   });
 
 // ── SCHEDULE ────────────────────────────────────────────────────────

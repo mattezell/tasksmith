@@ -233,6 +233,35 @@ Each Claude Code iteration logs a summary line:
 
 For deeper debugging, set `system.logLevel: DEBUG` in your config to save the full Claude Code JSON response per iteration to `~/.tasksmith/logs/{task-id}/iteration-{n}.json`.
 
+### Human-in-the-Loop Approval Gates
+
+Optionally require explicit approval before executing high-risk tasks. Off by default — zero behavior change unless you enable it.
+
+```yaml
+engine:
+  approvalGates:
+    enabled: true
+    timeoutMinutes: 60          # auto-reject after timeout
+    requireApproval:
+      - template: project-init  # specific task types
+      - params: { proxmox: true }  # tasks requesting VM provisioning
+      - params: { cf_deploy: true } # tasks triggering deployment
+      - source: discord_bot     # all tasks from Discord
+```
+
+When a task matches a rule, it's parked in `tasks/pending_approval/` and a notification is sent via all outbound providers with the task details and instructions:
+
+```bash
+tasksmith approve <taskId>   # approve and submit to pool
+tasksmith reject <taskId>    # reject with optional --reason
+```
+
+**Design principles:**
+- **Off by default.** If you don't configure gates, they don't exist.
+- **Rule-based matching** — gate by template, params, or inbound source.
+- **Never interrupts the "just do it" user** — if you've chosen full autonomy and don't enable gates, nothing changes.
+- **Auto-rejects on timeout** to prevent orphaned tasks.
+
 ### Scheduled Tasks
 
 Recurring tasks via cron syntax — memory consolidation, health checks, reports:
@@ -495,6 +524,8 @@ tasksmith memory             # Browse/search memory (--hot, --search, --recent)
 tasksmith schedule           # Show configured task schedules
 tasksmith workers            # Show worker pool config and active worktrees
 tasksmith workers --cleanup  # Remove stale worktrees (--dry-run to preview)
+tasksmith approve <taskId>      # Approve a task pending review
+tasksmith reject <taskId>       # Reject a pending task (--reason "...")
 tasksmith dag -f pipeline.yaml  # Submit a DAG workflow
 tasksmith dag --list         # List active DAGs
 tasksmith dag --status <id>  # Check DAG status

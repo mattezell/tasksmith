@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Discord bot channel scoping** — guild + channel allowlist enforcement via `allowedGuildIds` and `allowedChannelIds` config arrays. Messages from unlisted guilds/channels are silently dropped. Warns on startup if no restrictions are configured. Backward-compatible with legacy `channelId` string config.
+- **Human-in-the-loop approval gates** — opt-in `engine.approvalGates` config with rule-based matching (template, params, source). Matched tasks are parked in `tasks/pending_approval/`, operator notified via all outbound providers. `tasksmith approve <taskId>` / `tasksmith reject <taskId>` CLI commands. Auto-rejects after configurable timeout (default 60min). Off by default — zero behavior change for existing users.
 
 ### Fixed
 - **Discord bot channel filter bypass** — the previous single `channelId` filter could be bypassed by prefixing messages with `@tasksmith` from any channel. Now uses strict allowlist enforcement.
