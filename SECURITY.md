@@ -164,7 +164,7 @@ communication:
         rateLimit: 60  # requests per minute per IP
 ```
 
-The REST API binds to `0.0.0.0` by default. **Always configure `authToken` before exposing to a network.**
+The REST API binds to `127.0.0.1` (localhost) by default. **Always configure `authToken` before exposing to a network.**
 
 ### GitHub Webhooks
 

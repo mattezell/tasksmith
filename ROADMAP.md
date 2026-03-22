@@ -43,7 +43,7 @@ Removed WorktreeManager, permission wrappers, sandbox plugin, template system. M
 - ~~**Task insights**~~ — ✅ `tasksmith insights` — model comparison, failure patterns, cost outliers, trends.
 - ~~**REST API auth**~~ — ✅ Bearer token auth + sliding-window rate limiting. Closes known debt.
 - ~~**Input sanitization**~~ — ✅ Done in v0.8.4.
-- ~~**MCP server**~~ — ✅ Done in v0.8.4. 13 tools, 5 resources, stdio transport.
+- ~~**MCP server**~~ — ✅ Done in v0.8.4. 13 tools, 4 resource types, stdio transport.
 - ~~**Smart model routing**~~ — ✅ Done in v0.8.4.
 - ~~**Task DAGs**~~ — ✅ Done in v0.8.4.
 

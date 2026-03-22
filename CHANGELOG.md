@@ -15,8 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Claude Code integration** — `tasksmith cc-install` registers TaskSmith as an MCP server with Claude Code, giving CC native access to all 13 TaskSmith tools. Supports `--scope user|project`. `tasksmith cc-uninstall` removes the registration.
 - **CLAUDE.md** — project context file for Claude Code CLI sessions. Loaded automatically by Claude Code when working in the repo.
 - **GitHub Actions CI** — `.github/workflows/ci.yml` runs `tsc` build and `vitest` tests on push/PR across Node 18, 20, and 22.
-
-### Added
 - **Discord bot channel scoping** — guild + channel allowlist enforcement via `allowedGuildIds` and `allowedChannelIds` config arrays. Messages from unlisted guilds/channels are silently dropped. Warns on startup if no restrictions are configured. Backward-compatible with legacy `channelId` string config.
 - **Human-in-the-loop approval gates** — opt-in `engine.approvalGates` config with rule-based matching (template, params, source). Matched tasks are parked in `tasks/pending_approval/`, operator notified via all outbound providers. `tasksmith approve <taskId>` / `tasksmith reject <taskId>` CLI commands. Auto-rejects after configurable timeout (default 60min). Off by default — zero behavior change for existing users.
 - **SECURITY.md** — comprehensive security documentation covering threat model (3-layer attack surface), input sanitization details (trust levels, field limits, command allowlists), permission modes, approval gates, channel scoping (Discord, REST, GitHub, Slack), 6 concrete prompt injection patterns with attacks/mitigations/residual risks, and deployment scenario recommendations.

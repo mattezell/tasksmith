@@ -35,7 +35,7 @@ src/
 ├── pool.ts            ~139 lines    Worker pool, concurrency limiter
 ├── index.ts           ~13 lines     Package exports
 ├── providers/
-│   ├── comms/         ~790 lines    5 outbound + 7 inbound providers
+│   ├── comms/         ~834 lines    5 outbound + 7 inbound providers
 │   └── memory/        ~241 lines    Three-tier memory (hot/warm/cold)
 ├── plugins/bundled/               8 official plugins (~2,800 lines total)
 └── __tests__/                     Vitest tests
