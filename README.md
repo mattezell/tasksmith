@@ -151,7 +151,7 @@ engine:
   concurrency: 3    # max parallel tasks (default: 1)
 ```
 
-Tasks are priority-queued (urgent → high → normal → low). The pool dequeues up to `concurrency` tasks and runs them in parallel. When one finishes, the next in queue starts automatically. Execution is fully async — the Node.js event loop stays free for inbox scanning, file watching, and pool management while Claude Code runs. CLI: `tasksmith workers` shows pool config and active worktrees.
+Tasks are priority-queued (urgent → high → medium → normal → low). The pool dequeues up to `concurrency` tasks and runs them in parallel. When one finishes, the next in queue starts automatically. Execution is fully async — the Node.js event loop stays free for inbox scanning, file watching, and pool management while Claude Code runs. CLI: `tasksmith workers` shows pool config and active worktrees.
 
 ### Task DAG (Dependency Workflows)
 
@@ -818,7 +818,7 @@ template: ralph-loop        # Which template to use
 prompt: "Your instructions"
 project: my-api             # Project directory name
 model: auto                 # auto (smart routing), sonnet, opus, haiku
-priority: normal            # low, normal, high, urgent
+priority: normal            # low, normal, medium, high, urgent
 max_iterations: 5           # Max retries for ralph-loop
 notify:
   - all                     # Notification targets
@@ -1004,15 +1004,15 @@ src/
 ├── engine.ts           ~1,260 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, JSONL task log
 ├── cli.ts              ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── mcp.ts                ~700 lines  MCP server (stdio), 13 tools, 4+ resource types
-├── coordinator.ts        ~700 lines  Wires providers + engine + pool + plugins + DAG
+├── coordinator.ts        ~765 lines  Wires providers + engine + pool + plugins + DAG
 ├── plugins.ts            ~566 lines  Plugin loader, lifecycle hooks, scaffolding
 ├── dag.ts                ~450 lines  Task DAG: dependency resolution, cycle detection, Mermaid export
 ├── sanitize.ts           ~375 lines  Input sanitization: trust levels, allowlist validation
 ├── config.ts             ~355 lines  Workspace resolution, config layering, skill installation
-├── api.ts                ~300 lines  REST API server (Fastify) — auth + rate limiting + approval
+├── api.ts                ~355 lines  REST API server (Fastify) — auth + rate limiting + approval
 ├── onboarding.ts         ~251 lines  Simplified setup wizard
-├── scheduler.ts          ~237 lines  Cron-based task scheduling
-├── types.ts              ~203 lines  Interfaces, provider contracts
+├── scheduler.ts          ~247 lines  Cron-based task scheduling
+├── types.ts              ~209 lines  Interfaces, provider contracts
 ├── pool.ts               ~138 lines  Worker pool, concurrency limiter
 ├── index.ts               ~13 lines  Package exports
 ├── providers/

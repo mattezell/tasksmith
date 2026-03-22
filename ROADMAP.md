@@ -76,17 +76,16 @@ Sync memory, task history, and config across machines. Encrypted. Optional.
 
 ---
 
-## Milestone: Dogfooding
+## Milestone: Dogfooding ✅
 
-Use TaskSmith to develop TaskSmith.
+TaskSmith successfully dogfoods its own development as of v1.0.1.
 
-- Submit feature tasks via Discord bot
-- Validate with `tsc && npm test` in Ralph Loop
-- PRs opened manually from worktree branches
-- Nightly memory consolidation via scheduled heartbeat task
-- Metrics dashboard on tasksmith.dev
-
-Target: after v1.0.x stabilization.
+- First batch: 7 audit bug fixes submitted as file_drop tasks, all passed on iteration 1
+- Total cost: $0.78 across 7 tasks (~$0.11/task average)
+- Validation: `cd /home/matt/w/tasksmith && npm run build && npm test` verified each fix
+- Skill injection: all tasks used `ralph-loop` template via compiled prompt
+- JSONL logs captured full execution trace for each task
+- Discord webhook notifications fired on completion
 
 ---
 

@@ -24,15 +24,15 @@ src/
 ├── mcp.ts             ~700 lines    MCP server (13 tools, 4+ resource types)
 ├── cli.ts             ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── plugins.ts         ~566 lines    Plugin loader, lifecycle hooks
-├── coordinator.ts     ~700 lines    Wires providers + engine + pool + plugins + DAG
+├── coordinator.ts     ~765 lines    Wires providers + engine + pool + plugins + DAG
 ├── dag.ts             ~450 lines    Task DAG — dependency workflows, cycle detection, Mermaid export
 ├── sanitize.ts        ~375 lines    Input sanitization, trust levels, allowlists
 ├── config.ts          ~360 lines    Workspace resolution, config layering, skill installation
-├── api.ts             ~300 lines    REST API server (Fastify) — auth + rate limiting + approval
+├── api.ts             ~355 lines    REST API server (Fastify) — auth + rate limiting + approval
 ├── onboarding.ts      ~251 lines    Simplified setup wizard
-├── scheduler.ts       ~237 lines    Cron-based task scheduling (daemon-level, not session-scoped)
-├── types.ts           ~203 lines    Interfaces, provider contracts
-├── pool.ts            ~138 lines    Worker pool, concurrency limiter
+├── scheduler.ts       ~247 lines    Cron-based task scheduling (daemon-level, not session-scoped)
+├── types.ts           ~209 lines    Interfaces, provider contracts
+├── pool.ts            ~139 lines    Worker pool, concurrency limiter
 ├── index.ts           ~13 lines     Package exports
 ├── providers/
 │   ├── comms/         ~790 lines    5 outbound + 7 inbound providers

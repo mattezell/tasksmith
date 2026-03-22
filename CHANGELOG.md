@@ -70,6 +70,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Site feature cards** — added Task DAGs, MCP Server, and Smart Model Routing cards (features shipped in v0.8.4 but missing from site).
 - **Site footer** — year updated to 2025–2026.
 - **ESM import bug** — replaced `require("node:fs")` with static import in `dag.ts` restore method.
+- **`--dry-run` ignored when combined with `--cleanup`** — `tasksmith workers --cleanup --dry-run` performed actual deletion because `dryRun = opts.dryRun && !opts.cleanup` evaluated to false. Now `Boolean(opts.dryRun)`.
+- **Cron range/step parsing** — scheduler `parseField()` only handled simple ranges (`1-5`) and wildcards with step (`*/2`). Now supports range/step expressions like `1-5/2` → `[1, 3, 5]` and `0-20/5` → `[0, 5, 10, 15, 20]`.
+- **`/health` subject to rate limiter** — REST API rate limiter applied to all routes including `GET /health`, causing load balancers and monitoring to trigger 429s. Now exempt.
+- **`/memory/search` accepted empty requests** — `POST /memory/search` passed missing or empty `query` directly to memory providers. Now validates that `query` is a non-empty string, returns 400 otherwise.
+- **429 responses missing `Retry-After` header** — rate-limited responses didn't include `Retry-After` per RFC 6585. Now includes seconds until the oldest request in the sliding window expires.
+- **`MEDIUM` priority missing** — `Priority` enum only had `low`, `normal`, `high`, `urgent`. Added `MEDIUM = "medium"` and updated pool ordering to place it between normal and high.
+- **Rejection decision files lacked `reason` field** — approval gate rejections embedded the reason in the `decision` field. `handleApprovalDecision()` now accepts an optional `reason` parameter, included in task error and log output. Decision file polling destructures and passes `reason`.
+- **Inbox scanner trust level misclassification** — coordinator used `task.sourceFile` (a file path) as the source type for `trustLevel()`, causing all inbox tasks to hit the `default` case and be classified as external trust. Validation commands with `cd` were stripped. Now uses `"file_drop"` directly since `pickupAll()` always reads from inbox.
+- **`taskToYaml` dropped zero-value fields** — filter condition `v !== 0` caused fields like `iterations: 0` to be omitted from checkpoint YAML, breaking resume logic. Removed the `!== 0` check.
 
 ## [1.0.0] - 2026-03-20
 
