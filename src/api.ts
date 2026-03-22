@@ -29,12 +29,16 @@ export interface APIServerConfig {
   rateLimit?: number; // requests per minute per IP, 0 = unlimited
 }
 
+/** Callback for routing approval decisions through the coordinator. */
+export type ApprovalDecisionFn = (taskId: string, approved: boolean, decidedBy: string) => boolean;
+
 export async function createAPIServer(
   workspace: string,
   engine: TaskEngine,
   memoryProviders: MemoryProvider[],
   hostOrConfig: string | APIServerConfig = "0.0.0.0",
   portArg = 8420,
+  approvalDecision?: ApprovalDecisionFn,
 ) {
   // Backward-compatible: accept (host, port) or config object
   const cfg: APIServerConfig = typeof hostOrConfig === "string"
@@ -260,8 +264,23 @@ export async function createAPIServer(
       reply.status(404);
       return { error: `Task ${id} not found in pending_approval` };
     }
+
+    // Route through coordinator's decision handler if available (clears timers + in-memory state)
+    if (approvalDecision) {
+      const ok = approvalDecision(id, true, "rest_api");
+      if (!ok) {
+        // Coordinator didn't have the entry — fall back to file-based (e.g., task was parked before restart)
+        const data = yaml.load(readFileSync(fp, "utf-8")) as any;
+        delete data.status;
+        writeFileSync(join(workspace, "tasks", "inbox", `${id}.yaml`), yaml.dump(data));
+        unlinkSync(fp);
+      }
+      return { id, status: "approved" };
+    }
+
+    // No coordinator — file-only fallback (standalone API mode)
     const data = yaml.load(readFileSync(fp, "utf-8")) as any;
-    delete data.status; // Remove pending_approval status so engine treats it as pending
+    delete data.status;
     writeFileSync(join(workspace, "tasks", "inbox", `${id}.yaml`), yaml.dump(data));
     unlinkSync(fp);
     return { id, status: "approved" };
@@ -278,6 +297,23 @@ export async function createAPIServer(
       reply.status(404);
       return { error: `Task ${id} not found in pending_approval` };
     }
+
+    // Route through coordinator's decision handler if available
+    if (approvalDecision) {
+      const ok = approvalDecision(id, false, `rest_api${body.reason ? `: ${body.reason}` : ""}`);
+      if (!ok) {
+        // Coordinator didn't have the entry — fall back to file-based
+        const data = yaml.load(readFileSync(fp, "utf-8")) as any;
+        data.status = "failed";
+        data.error = `Rejected${body.reason ? `: ${body.reason}` : ""}`;
+        data.completed_at = new Date().toISOString();
+        writeFileSync(join(workspace, "tasks", "failed", `${id}.yaml`), yaml.dump(data));
+        unlinkSync(fp);
+      }
+      return { id, status: "rejected" };
+    }
+
+    // No coordinator — file-only fallback
     const data = yaml.load(readFileSync(fp, "utf-8")) as any;
     data.status = "failed";
     data.error = `Rejected${body.reason ? `: ${body.reason}` : ""}`;

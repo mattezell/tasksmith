@@ -774,15 +774,12 @@ program
       process.exit(1);
     }
 
-    // Read task, move to inbox for pickup by running engine
-    const taskData = readFileSync(approvalFile, "utf-8");
-    const task = yaml.load(taskData) as Record<string, unknown>;
-    task.status = "pending";
-    (task as any)._approvedBy = "cli";
-    const inboxFile = join(ws, "tasks", "inbox", `${taskId}.yaml`);
-    writeFileSync(inboxFile, yaml.dump(task));
-    unlinkSync(approvalFile);
-    console.log(chalk.green(`\n  ✓ Approved ${taskId} — moved to inbox for execution\n`));
+    // Write a decision file for the running coordinator to pick up.
+    // The coordinator polls for .decision-*.json files and routes them
+    // through handleApprovalDecision() to clear timers + in-memory state.
+    const decisionFile = join(ws, "tasks", "pending_approval", `.decision-${taskId}.json`);
+    writeFileSync(decisionFile, JSON.stringify({ taskId, approved: true, decidedBy: "cli" }));
+    console.log(chalk.green(`\n  ✓ Approved ${taskId} — coordinator will pick up the decision\n`));
   });
 
 program
@@ -798,15 +795,10 @@ program
       process.exit(1);
     }
 
-    const taskData = readFileSync(approvalFile, "utf-8");
-    const task = yaml.load(taskData) as Record<string, unknown>;
-    task.status = "failed";
-    task.error = `Rejected via CLI${opts.reason ? `: ${opts.reason}` : ""}`;
-    task.completedAt = new Date().toISOString();
-    const failFile = join(ws, "tasks", "failed", `${taskId}.yaml`);
-    writeFileSync(failFile, yaml.dump(task));
-    unlinkSync(approvalFile);
-    console.log(chalk.red(`\n  ✗ Rejected ${taskId}\n`));
+    // Write a decision file for the running coordinator to pick up.
+    const decisionFile = join(ws, "tasks", "pending_approval", `.decision-${taskId}.json`);
+    writeFileSync(decisionFile, JSON.stringify({ taskId, approved: false, decidedBy: `cli${opts.reason ? `: ${opts.reason}` : ""}` }));
+    console.log(chalk.red(`\n  ✗ Rejected ${taskId} — coordinator will pick up the decision\n`));
   });
 
 // ── SCHEDULE ────────────────────────────────────────────────────────

@@ -443,12 +443,12 @@ plugins:
 |--------|-------------|
 | **github** | GitHub Issues/PR integration. Auto-create issues on failure, comment results, close on success. Config: `token`, `owner`, `repo` or `GITHUB_TOKEN` env var. |
 | **metrics** | Execution analytics. Success rates, timing, model/template/project breakdown. CLI: `tasksmith metrics` |
-| **docker** | Container isolation. Resource limits, project mounts, per-task image overrides, auto-cleanup. CLI: `tasksmith docker` |
+| **docker** | Container isolation. Resource limits, project mounts, per-task image overrides, auto-cleanup. CLI: `tasksmith plugin run docker` |
 | **jira** | JIRA ticket integration. Create on failure, transition to Done on success. Config: `host`, `email`, `apiToken`, `projectKey` |
-| **postgres** | PostgreSQL task history. Auto-creates tables, full metadata, SQL queryable. CLI: `tasksmith pg`. Requires `npm install pg` |
-| **proxmox** | Proxmox VM provisioning. Clone from templates, snapshot/rollback, lifecycle management. CLI: `tasksmith proxmox` |
-| **cloudflare** | Cloudflare Pages deployments. Auto-deploy on task success, rollback, cache purge. Uses `wrangler` CLI. CLI: `tasksmith cf` |
-| **semantic-memory** | Vector-based semantic search over task history. Supports Ollama (local), OpenAI, or Gemini embeddings. CLI: `tasksmith semantic` |
+| **postgres** | PostgreSQL task history. Auto-creates tables, full metadata, SQL queryable. CLI: `tasksmith plugin run pg`. Requires `npm install pg` |
+| **proxmox** | Proxmox VM provisioning. Clone from templates, snapshot/rollback, lifecycle management. CLI: `tasksmith plugin run proxmox` |
+| **cloudflare** | Cloudflare Pages deployments. Auto-deploy on task success, rollback, cache purge. Uses `wrangler` CLI. CLI: `tasksmith plugin run cf` |
+| **semantic-memory** | Vector-based semantic search over task history. Supports Ollama (local), OpenAI, or Gemini embeddings. CLI: `tasksmith plugin run semantic` |
 
 Plugins with config:
 
@@ -501,7 +501,7 @@ Scaffold your own: `tasksmith plugin create my-thing`
 | `discord_webhook` | Rich embeds with color-coded priority |
 | `ntfy` | Push notifications to phone/desktop via [ntfy.sh](https://ntfy.sh) |
 | `slack_webhook` | Slack channel messages |
-| `email` | SMTP email notifications |
+| `email` | SMTP email notifications (requires `npm install nodemailer`) |
 | `webhook_generic` | POST JSON to any URL |
 
 ### Inbound (receive tasks)

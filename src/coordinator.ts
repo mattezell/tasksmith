@@ -6,7 +6,7 @@
  */
 
 import { join, dirname } from "node:path";
-import { writeFileSync, unlinkSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
+import { writeFileSync, unlinkSync, mkdirSync, readdirSync, readFileSync, renameSync, existsSync } from "node:fs";
 import yaml from "js-yaml";
 import chalk from "chalk";
 import { v4 as uuidv4 } from "uuid";
@@ -240,6 +240,32 @@ export class Coordinator {
     }
 
     return true;
+  }
+
+  /**
+   * Poll for decision files written by the CLI (separate process).
+   * CLI writes `.decision-<taskId>.json` to pending_approval/ since it
+   * can't call handleApprovalDecision() directly.
+   */
+  private pollApprovalDecisions(): void {
+    const approvalDir = join(this.workspace, "tasks", "pending_approval");
+    if (!existsSync(approvalDir)) return;
+
+    for (const f of readdirSync(approvalDir)) {
+      if (!f.startsWith(".decision-") || !f.endsWith(".json")) continue;
+      const fp = join(approvalDir, f);
+      try {
+        const decision = JSON.parse(readFileSync(fp, "utf-8"));
+        unlinkSync(fp); // Remove decision file before processing to avoid double-processing
+        const { taskId, approved, decidedBy } = decision;
+        if (taskId) {
+          this.handleApprovalDecision(taskId, Boolean(approved), decidedBy || "cli");
+        }
+      } catch (e: any) {
+        console.warn(`[coordinator] Failed to process decision file ${f}: ${e.message}`);
+        try { unlinkSync(fp); } catch { /* ignore */ }
+      }
+    }
   }
 
   /**
@@ -613,6 +639,9 @@ export class Coordinator {
     this.scanInterval = setInterval(() => {
       if (this.shutdownRequested) return;
       try {
+        // Poll for CLI approval decisions (separate process writes decision files)
+        this.pollApprovalDecisions();
+
         // Pre-scan: detect DAG files and route them before pickupAll parses them as tasks
         this.prescanInboxForDAGs();
 
@@ -676,10 +705,13 @@ export class Coordinator {
       provider.start(handler).catch(e => console.error(`[${provider.name}] start error:`, e));
     }
 
-    // Start API server if enabled
+    // Start API server if enabled — pass approval decision callback so API
+    // routes decisions through the coordinator (clearing timers + in-memory state)
     const apiEntry = this.config.communication.inbound.find(e => e.provider === "rest_api" && e.enabled);
     if (apiEntry) {
-      await createAPIServer(this.workspace, this.engine, this.memory, apiEntry.config as any);
+      const approvalCb = (taskId: string, approved: boolean, decidedBy: string) =>
+        this.handleApprovalDecision(taskId, approved, decidedBy);
+      await createAPIServer(this.workspace, this.engine, this.memory, apiEntry.config as any, 8420, approvalCb);
     }
 
     // Wait for shutdown signal
