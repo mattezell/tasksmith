@@ -57,8 +57,18 @@ function parseField(field: string, min: number, max: number): Set<number> {
     } else if (part.includes("/")) {
       const [range, stepStr] = part.split("/");
       const step = parseInt(stepStr, 10);
-      const start = range === "*" ? min : parseInt(range, 10);
-      for (let i = start; i <= max; i += step) values.add(i);
+      let start = min;
+      let end = max;
+      if (range !== "*") {
+        if (range.includes("-")) {
+          const [lo, hi] = range.split("-").map(Number);
+          start = lo;
+          end = hi;
+        } else {
+          start = parseInt(range, 10);
+        }
+      }
+      for (let i = start; i <= end; i += step) values.add(i);
     } else if (part.includes("-")) {
       const [lo, hi] = part.split("-").map(Number);
       for (let i = lo; i <= hi; i++) values.add(i);

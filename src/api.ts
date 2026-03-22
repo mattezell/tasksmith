@@ -84,6 +84,9 @@ export async function createAPIServer(
     }, 300_000).unref();
 
     app.addHook("onRequest", async (req, reply) => {
+      // Skip rate limiting for health check (allows load balancers and monitoring to poll freely)
+      if (req.url === "/health") return;
+
       const ip = req.ip;
       const now = Date.now();
       const cutoff = now - WINDOW_MS;
@@ -98,6 +101,8 @@ export async function createAPIServer(
       reply.header("X-RateLimit-Remaining", remaining);
 
       if (timestamps.length > rateLimitPerMin) {
+        const retryAfterSec = Math.ceil((timestamps[0] + WINDOW_MS - now) / 1000);
+        reply.header("Retry-After", retryAfterSec);
         reply.status(429).send({ error: "Rate limit exceeded", retryAfterMs: WINDOW_MS });
       }
     });
@@ -199,8 +204,13 @@ export async function createAPIServer(
 
   // ── Memory search ────────────────────────────────────────────
 
-  app.post("/memory/search", async (req) => {
-    const { query, limit = 5 } = req.body as { query: string; limit?: number };
+  app.post("/memory/search", async (req, reply) => {
+    const body = req.body as Record<string, unknown>;
+    if (!body || typeof body.query !== "string" || body.query.trim() === "") {
+      reply.status(400);
+      return { error: "query is required and must be a non-empty string" };
+    }
+    const { query, limit = 5 } = body as { query: string; limit?: number };
     const results: any[] = [];
 
     for (const p of memoryProviders) {

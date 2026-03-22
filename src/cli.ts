@@ -612,7 +612,7 @@ program
       const { spawnSync: ss } = await import("node:child_process");
       const wtBaseDir = join(ws, "worktrees");
       const activeDir = join(ws, "tasks", "active");
-      const dryRun = opts.dryRun && !opts.cleanup;
+      const dryRun = Boolean(opts.dryRun);
 
       if (!existsSync(wtBaseDir)) {
         console.log(chalk.dim("\n  No worktree directory found. Nothing to clean up.\n"));

@@ -1361,7 +1361,7 @@ export class TaskEngine {
 function taskToYaml(task: Task): string {
   const data: Record<string, any> = {};
   for (const [k, v] of Object.entries(task)) {
-    if (v !== "" && v !== 0 && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)) {
+    if (v !== "" && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)) {
       // Convert camelCase to snake_case for YAML
       const key = k.replace(/([A-Z])/g, "_$1").toLowerCase();
       data[key] = v;

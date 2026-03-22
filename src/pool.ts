@@ -67,7 +67,7 @@ export class WorkerPool {
       this.startWorker(task);
     } else {
       // Insert by priority (urgent first)
-      const priorityOrder: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+      const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, normal: 3, low: 4 };
       const p = priorityOrder[task.priority] ?? 2;
       const idx = this.queue.findIndex(t => (priorityOrder[t.priority] ?? 2) > p);
       if (idx === -1) {

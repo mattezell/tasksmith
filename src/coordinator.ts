@@ -216,7 +216,7 @@ export class Coordinator {
    * Handle an approval or rejection decision.
    * Called by CLI (approve/reject commands), REST API, or timeout.
    */
-  handleApprovalDecision(taskId: string, approved: boolean, decidedBy: string): boolean {
+  handleApprovalDecision(taskId: string, approved: boolean, decidedBy: string, reason?: string): boolean {
     const entry = this.approvalPending.get(taskId);
     if (!entry) return false;
 
@@ -231,12 +231,14 @@ export class Coordinator {
       console.log(chalk.green(`[approval] ${taskId} approved by ${decidedBy}`));
       this.submitTaskDirect(entry.task, entry.source);
     } else {
+      const rejectionReason = reason ? `Rejected by ${decidedBy}: ${reason}` : `Rejected by ${decidedBy}`;
       entry.task.status = "failed";
-      entry.task.error = `Rejected by ${decidedBy}`;
+      entry.task.error = rejectionReason;
       entry.task.completedAt = new Date().toISOString();
       const failFile = join(this.workspace, "tasks", "failed", `${taskId}.yaml`);
       writeFileSync(failFile, yaml.dump(entry.task));
-      console.log(chalk.red(`[approval] ${taskId} rejected by ${decidedBy}`));
+      const logMsg = reason ? `[approval] ${taskId} rejected by ${decidedBy}: ${reason}` : `[approval] ${taskId} rejected by ${decidedBy}`;
+      console.log(chalk.red(logMsg));
     }
 
     return true;
@@ -257,9 +259,9 @@ export class Coordinator {
       try {
         const decision = JSON.parse(readFileSync(fp, "utf-8"));
         unlinkSync(fp); // Remove decision file before processing to avoid double-processing
-        const { taskId, approved, decidedBy } = decision;
+        const { taskId, approved, decidedBy, reason } = decision;
         if (taskId) {
-          this.handleApprovalDecision(taskId, Boolean(approved), decidedBy || "cli");
+          this.handleApprovalDecision(taskId, Boolean(approved), decidedBy || "cli", reason);
         }
       } catch (e: any) {
         console.warn(`[coordinator] Failed to process decision file ${f}: ${e.message}`);
@@ -659,8 +661,9 @@ export class Coordinator {
 
         const tasks = this.engine.pickupAll();
         for (const task of tasks) {
-          // Sanitize tasks from inbox scanner (pickupAll doesn't sanitize)
-          const source = task.sourceFile || "file_drop";
+          // pickupAll reads from inbox/ which is always file_drop (local trust).
+          // Note: task.sourceFile is a file *path*, not a source type — don't use it as source.
+          const source = "file_drop";
           const trust = trustLevel(source);
           if (trust === "external") {
             const { data: clean, warnings, rejected, reason } = sanitizeTask(task as any, source);
