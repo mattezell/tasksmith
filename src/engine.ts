@@ -1118,6 +1118,33 @@ export class TaskEngine {
       };
       (task as any).diagnostics = diagnostics;
       tlog.taskEnd(task.id, task.status, diagnostics);
+
+      // Daily budget warning (warn-only, never blocks execution)
+      if (task.status === "completed" && (this.defaults.budget?.dailyUsd ?? 0) > 0) {
+        const dailyLimit = this.defaults.budget!.dailyUsd;
+        const today = new Date().toISOString().slice(0, 10);
+        const logsDir = join(this.workspace, "logs");
+        let dailySpend = 0;
+        if (existsSync(logsDir)) {
+          try {
+            for (const f of readdirSync(logsDir).filter(f => f.startsWith("task-") && f.endsWith(".jsonl"))) {
+              try {
+                for (const line of readFileSync(join(logsDir, f), "utf-8").split("\n").filter(Boolean)) {
+                  try {
+                    const entry = JSON.parse(line);
+                    if (entry.event === "task_end" && typeof entry.ts === "string" && entry.ts.startsWith(today)) {
+                      dailySpend += entry.total_cost_usd || 0;
+                    }
+                  } catch { /* skip malformed */ }
+                }
+              } catch { /* skip unreadable file */ }
+            }
+          } catch { /* skip unreadable dir */ }
+        }
+        if (dailySpend > dailyLimit) {
+          console.warn(`[engine] ⚠ Daily budget exceeded: $${dailySpend.toFixed(2)} / $${dailyLimit.toFixed(2)}`);
+        }
+      }
     } catch (e: any) {
       task.status = "failed";
       task.error = e.message;

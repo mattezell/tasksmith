@@ -107,6 +107,12 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
       maxConsecutiveTimeouts: 2,
       costCeilingUsd: 0,
     },
+    budget: {
+      dailyUsd: 0,
+      weeklyUsd: 0,
+      monthlyUsd: 0,
+      warnAtPercent: 80,
+    },
   },
 };
 

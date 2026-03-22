@@ -593,6 +593,7 @@ tasksmith plugin create <n>    # Scaffold a new plugin
 tasksmith plugin run <name>    # Run a plugin command
 tasksmith metrics              # Task execution stats + cost tracking
 tasksmith insights             # Analyze task history for patterns
+tasksmith costs                # Cost dashboard — spend by model/project, time-series, budget alerts, forecasting
 tasksmith plugin run docker    # Container status (docker plugin)
 tasksmith plugin run pg        # Query task history (postgres plugin)
 tasksmith plugin run proxmox   # VM status (proxmox plugin)
@@ -836,6 +837,38 @@ if the `claude` CLI isn't available).
 Tools available after install: `submit_task`, `get_task_status`, `list_tasks`,
 `cancel_task`, `retry_task`, `search_memory`, `store_memory`, `list_projects`,
 `queue_status`, `health_check`, `submit_dag`, `dag_status`, `list_dags`.
+
+---
+
+## Cost Dashboard
+
+Track spending across all tasks with detailed breakdowns:
+
+```bash
+tasksmith costs                  # full cost dashboard
+tasksmith costs --days 7         # last 7 days only
+tasksmith costs --period week    # group by week
+tasksmith costs --json           # machine-readable output
+```
+
+Shows: total spend, cost by model/project, top expensive tasks, daily/weekly/monthly
+trends with directional indicators, budget status, and spend forecasting.
+
+### Budget Alerts
+
+Configure spending limits in your config:
+
+```yaml
+taskDefaults:
+  budget:
+    dailyUsd: 10
+    weeklyUsd: 50
+    monthlyUsd: 150
+    warnAtPercent: 80
+```
+
+The costs command shows budget status. The engine logs a warning when daily spend
+exceeds the configured limit (does not block execution).
 
 ---
 

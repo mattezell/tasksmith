@@ -1156,6 +1156,380 @@ program
     console.log();
   });
 
+// ── COSTS ─────────────────────────────────────────────────────────
+
+program
+  .command("costs")
+  .description("Show cost dashboard from JSONL task logs")
+  .option("--days <n>", "Only show costs from last N days")
+  .option("--period <period>", "Group cost history by: day|week|month", "day")
+  .option("--json", "Output raw JSON")
+  .action(async (opts) => {
+    const ws = resolveWorkspace(program.opts().dir);
+    const config = loadConfig(ws);
+    const logsDir = join(ws, "logs");
+
+    if (!existsSync(logsDir)) {
+      console.log(chalk.dim("\n  No logs directory found. Run some tasks first.\n"));
+      return;
+    }
+
+    const days = opts.days ? parseInt(opts.days) || 0 : 0;
+    const cutoff = days > 0 ? Date.now() - days * 86400000 : 0;
+
+    type TaskRecord = {
+      taskId: string;
+      template: string;
+      model: string;
+      project: string;
+      status: string;
+      totalCostUsd: number;
+      iterationsUsed: number;
+      ts: string;
+    };
+
+    const records: TaskRecord[] = [];
+
+    let files: string[];
+    try {
+      files = readdirSync(logsDir).filter((f) => f.startsWith("task-") && f.endsWith(".jsonl"));
+    } catch {
+      console.log(chalk.dim("\n  Could not read logs directory.\n"));
+      return;
+    }
+
+    for (const file of files) {
+      const filePath = join(logsDir, file);
+      let startEvent: Record<string, any> | null = null;
+      let endEvent: Record<string, any> | null = null;
+
+      try {
+        const lines = readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
+        for (const line of lines) {
+          try {
+            const entry = JSON.parse(line);
+            if (entry.event === "task_start") startEvent = entry;
+            if (entry.event === "task_end") endEvent = entry;
+          } catch {
+            // skip malformed lines
+          }
+        }
+      } catch {
+        continue;
+      }
+
+      if (!endEvent) continue;
+
+      if (cutoff > 0 && endEvent.ts) {
+        const ts = new Date(endEvent.ts).getTime();
+        if (ts < cutoff) continue;
+      }
+
+      records.push({
+        taskId: endEvent.task || file.replace(".jsonl", ""),
+        template: startEvent?.template || "",
+        model: startEvent?.model || endEvent.model || "",
+        project: startEvent?.project || endEvent.project || "",
+        status: endEvent.status || "",
+        totalCostUsd: endEvent.total_cost_usd || 0,
+        iterationsUsed: endEvent.iterations_used || 0,
+        ts: endEvent.ts || "",
+      });
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(records, null, 2));
+      return;
+    }
+
+    if (records.length === 0) {
+      const suffix = days > 0 ? ` in the last ${days} days` : "";
+      console.log(chalk.dim(`\n  No task cost data found${suffix}.\n`));
+      return;
+    }
+
+    const totalCost = records.reduce((s, r) => s + r.totalCostUsd, 0);
+    const avgCost = totalCost / records.length;
+
+    const label = days > 0 ? `last ${days} days` : "all time";
+    console.log(chalk.bold(`\n  TaskSmith Cost Dashboard (${label})\n`));
+    console.log(`    Total spend:     ${chalk.yellow("$" + totalCost.toFixed(4))}`);
+    console.log(`    Tasks:           ${chalk.bold(String(records.length))}`);
+    console.log(`    Avg cost/task:   ${chalk.yellow("$" + avgCost.toFixed(4))}`);
+
+    // By model
+    const byModel: Record<string, { tasks: number; totalCost: number }> = {};
+    for (const r of records) {
+      const key = r.model || "unknown";
+      (byModel[key] ||= { tasks: 0, totalCost: 0 }).tasks++;
+      byModel[key].totalCost += r.totalCostUsd;
+    }
+    if (Object.keys(byModel).length > 0) {
+      console.log(chalk.bold(`\n  By Model\n`));
+      console.log(`    ${"Model".padEnd(20)} ${"Tasks".padStart(6)}  ${"Total Cost".padStart(12)}  ${"Avg Cost".padStart(10)}`);
+      console.log(`    ${"─".repeat(54)}`);
+      for (const [model, s] of Object.entries(byModel).sort((a, b) => b[1].totalCost - a[1].totalCost)) {
+        const avg = s.totalCost / s.tasks;
+        console.log(`    ${model.padEnd(20)} ${String(s.tasks).padStart(6)}  ${chalk.yellow(("$" + s.totalCost.toFixed(4)).padStart(12))}  ${chalk.dim(("$" + avg.toFixed(4)).padStart(10))}`);
+      }
+    }
+
+    // By project
+    const byProject: Record<string, { tasks: number; totalCost: number }> = {};
+    for (const r of records) {
+      const key = r.project || "unknown";
+      (byProject[key] ||= { tasks: 0, totalCost: 0 }).tasks++;
+      byProject[key].totalCost += r.totalCostUsd;
+    }
+    if (Object.keys(byProject).length > 0) {
+      console.log(chalk.bold(`\n  By Project\n`));
+      console.log(`    ${"Project".padEnd(24)} ${"Tasks".padStart(6)}  ${"Total Cost".padStart(12)}`);
+      console.log(`    ${"─".repeat(46)}`);
+      for (const [proj, s] of Object.entries(byProject).sort((a, b) => b[1].totalCost - a[1].totalCost)) {
+        console.log(`    ${proj.padEnd(24)} ${String(s.tasks).padStart(6)}  ${chalk.yellow(("$" + s.totalCost.toFixed(4)).padStart(12))}`);
+      }
+    }
+
+    // Top 5 most expensive tasks
+    const top5 = [...records].sort((a, b) => b.totalCostUsd - a.totalCostUsd).slice(0, 5);
+    if (top5.length > 0) {
+      console.log(chalk.bold(`\n  Top 5 Most Expensive Tasks\n`));
+      console.log(`    ${"Task ID".padEnd(36)} ${"Cost".padStart(10)}  ${"Model".padEnd(12)}  ${"Iters".padStart(5)}`);
+      console.log(`    ${"─".repeat(68)}`);
+      for (const r of top5) {
+        console.log(`    ${r.taskId.padEnd(36)} ${chalk.yellow(("$" + r.totalCostUsd.toFixed(4)).padStart(10))}  ${r.model.padEnd(12)}  ${String(r.iterationsUsed).padStart(5)}`);
+      }
+    }
+
+    // ── Cost History (by period) ───────────────────────────────────
+    const period = (opts.period || "day") as string;
+
+    function getPeriodKey(ts: string): string {
+      if (!ts) return "unknown";
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return "unknown";
+      if (period === "month") return d.toISOString().slice(0, 7);
+      if (period === "week") {
+        const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        const dow = date.getUTCDay() || 7;
+        date.setUTCDate(date.getUTCDate() + 4 - dow);
+        const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+        const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+        return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+      }
+      return d.toISOString().slice(0, 10);
+    }
+
+    type PeriodBucket = { tasks: number; passed: number; failed: number; cost: number };
+    const byPeriod: Record<string, PeriodBucket> = {};
+    for (const r of records) {
+      const key = getPeriodKey(r.ts);
+      (byPeriod[key] ||= { tasks: 0, passed: 0, failed: 0, cost: 0 });
+      byPeriod[key].tasks++;
+      byPeriod[key].cost += r.totalCostUsd;
+      if (r.status === "completed") byPeriod[key].passed++;
+      else byPeriod[key].failed++;
+    }
+
+    const sortedPeriods = Object.keys(byPeriod).filter((k) => k !== "unknown").sort();
+    if (byPeriod["unknown"]) sortedPeriods.push("unknown");
+
+    console.log(chalk.bold(`\n  Cost History (by ${period})\n`));
+    console.log(
+      `    ${"Period".padEnd(12)} ${"Tasks".padStart(6)}  ${"Passed".padStart(6)}  ${"Failed".padStart(6)}  ${"Cost".padStart(12)}  Trend`
+    );
+    console.log(`    ${"─".repeat(57)}`);
+
+    let histTasks = 0, histPassed = 0, histFailed = 0, histCost = 0;
+    let prevCost: number | null = null;
+
+    for (const key of sortedPeriods) {
+      const b = byPeriod[key];
+      histTasks += b.tasks;
+      histPassed += b.passed;
+      histFailed += b.failed;
+      histCost += b.cost;
+
+      let trend = "  ";
+      if (prevCost !== null) {
+        if (prevCost === 0) {
+          trend = b.cost > 0 ? chalk.red("↑") : chalk.dim("→");
+        } else {
+          const ratio = (b.cost - prevCost) / prevCost;
+          if (ratio > 0.1) trend = chalk.red("↑");
+          else if (ratio < -0.1) trend = chalk.green("↓");
+          else trend = chalk.dim("→");
+        }
+      }
+      prevCost = b.cost;
+
+      console.log(
+        `    ${key.padEnd(12)} ${String(b.tasks).padStart(6)}  ${String(b.passed).padStart(6)}  ${String(b.failed).padStart(6)}  ${chalk.yellow(("$" + b.cost.toFixed(4)).padStart(12))}  ${trend}`
+      );
+    }
+
+    console.log(`    ${"─".repeat(57)}`);
+    console.log(
+      `    ${"Total".padEnd(12)} ${String(histTasks).padStart(6)}  ${String(histPassed).padStart(6)}  ${String(histFailed).padStart(6)}  ${chalk.yellow(("$" + histCost.toFixed(4)).padStart(12))}`
+    );
+
+    // ── Budget Status ──────────────────────────────────────────────
+    const budget = config.taskDefaults?.budget;
+    const limits: Array<{ label: string; limitUsd: number; spentUsd: number }> = [];
+
+    if (budget && (budget.dailyUsd > 0 || budget.weeklyUsd > 0 || budget.monthlyUsd > 0)) {
+      const warnAt = budget.warnAtPercent ?? 80;
+
+      // Compute current period keys
+      const now = new Date();
+      const todayKey = now.toISOString().slice(0, 10);
+      const todayMonthKey = now.toISOString().slice(0, 7);
+
+      // ISO week key for today
+      const isoDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const dow = isoDate.getUTCDay() || 7;
+      isoDate.setUTCDate(isoDate.getUTCDate() + 4 - dow);
+      const yearStart = new Date(Date.UTC(isoDate.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil(((isoDate.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+      const todayWeekKey = `${isoDate.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+
+      if (budget.dailyUsd > 0) {
+        const spent = records.filter((r) => r.ts.startsWith(todayKey)).reduce((s, r) => s + r.totalCostUsd, 0);
+        limits.push({ label: "Daily", limitUsd: budget.dailyUsd, spentUsd: spent });
+      }
+      if (budget.weeklyUsd > 0) {
+        const spent = records.filter((r) => getPeriodKey(r.ts) === todayWeekKey).reduce((s, r) => s + r.totalCostUsd, 0);
+        limits.push({ label: "Weekly", limitUsd: budget.weeklyUsd, spentUsd: spent });
+      }
+      if (budget.monthlyUsd > 0) {
+        const spent = records.filter((r) => r.ts.startsWith(todayMonthKey)).reduce((s, r) => s + r.totalCostUsd, 0);
+        limits.push({ label: "Monthly", limitUsd: budget.monthlyUsd, spentUsd: spent });
+      }
+
+      if (limits.length > 0) {
+        console.log(chalk.bold(`\n  Budget Status\n`));
+        console.log(`    ${"Period".padEnd(10)} ${"Limit".padStart(10)}  ${"Spent".padStart(10)}  ${"Remaining".padStart(10)}  Status`);
+        console.log(`    ${"─".repeat(54)}`);
+        for (const { label, limitUsd, spentUsd } of limits) {
+          const remaining = limitUsd - spentUsd;
+          const pct = (spentUsd / limitUsd) * 100;
+          let status: string;
+          if (pct >= 100) {
+            status = chalk.red("✗ Over");
+          } else if (pct >= warnAt) {
+            status = chalk.yellow("⚠ Warning");
+          } else {
+            status = chalk.green("✓ OK");
+          }
+          console.log(
+            `    ${label.padEnd(10)} ${chalk.dim(("$" + limitUsd.toFixed(2)).padStart(10))}  ${chalk.yellow(("$" + spentUsd.toFixed(4)).padStart(10))}  ${(remaining >= 0 ? chalk.green : chalk.red)(("$" + remaining.toFixed(4)).padStart(10))}  ${status}`
+          );
+        }
+      }
+    }
+
+    // ── Spend Forecast ────────────────────────────────────────────────
+    const forecastNow = new Date();
+    const allDailyCostMap: Record<string, number> = {};
+    for (const r of records) {
+      const dayKey = r.ts ? r.ts.slice(0, 10) : null;
+      if (!dayKey || dayKey === "unknown") continue;
+      allDailyCostMap[dayKey] = (allDailyCostMap[dayKey] || 0) + r.totalCostUsd;
+    }
+
+    const dayCostKeys = Object.keys(allDailyCostMap).sort();
+
+    if (dayCostKeys.length > 0) {
+      console.log(chalk.bold(`\n  Spend Forecast\n`));
+
+      const oldestDate = new Date(dayCostKeys[0] + "T00:00:00Z");
+      const daySpan = Math.min(
+        14,
+        Math.floor((forecastNow.getTime() - oldestDate.getTime()) / 86400000) + 1
+      );
+
+      if (daySpan < 3) {
+        console.log(chalk.dim("    Insufficient data for forecast (need 3+ days)\n"));
+      } else {
+        // Build window ending today, filling gaps with $0
+        const fcWindow: number[] = [];
+        for (let i = daySpan - 1; i >= 0; i--) {
+          const d = new Date(
+            Date.UTC(forecastNow.getUTCFullYear(), forecastNow.getUTCMonth(), forecastNow.getUTCDate() - i)
+          );
+          fcWindow.push(allDailyCostMap[d.toISOString().slice(0, 10)] ?? 0);
+        }
+
+        // Weighted moving average: weight = index + 1 (most recent = highest)
+        const totalWeight = fcWindow.reduce((s, _, i) => s + (i + 1), 0);
+        const dailyRate = fcWindow.reduce((s, cost, i) => s + cost * (i + 1), 0) / totalWeight;
+
+        // Current week spend (ISO week, Mon-based)
+        const isoDay = forecastNow.getUTCDay() || 7;
+        const weekStartDate = new Date(
+          Date.UTC(forecastNow.getUTCFullYear(), forecastNow.getUTCMonth(), forecastNow.getUTCDate() - isoDay + 1)
+        );
+        const weekStartKey = weekStartDate.toISOString().slice(0, 10);
+        const todayKeyFc = forecastNow.toISOString().slice(0, 10);
+        const thisWeekSpend = records
+          .filter((r) => r.ts >= weekStartKey && r.ts.slice(0, 10) <= todayKeyFc)
+          .reduce((s, r) => s + r.totalCostUsd, 0);
+        const daysLeftInWeek = 7 - isoDay;
+        const projWeek = thisWeekSpend + daysLeftInWeek * dailyRate;
+
+        // Current month spend
+        const monthPrefixFc = forecastNow.toISOString().slice(0, 7);
+        const thisMonthSpend = records
+          .filter((r) => r.ts.startsWith(monthPrefixFc))
+          .reduce((s, r) => s + r.totalCostUsd, 0);
+        const daysInMonthFc = new Date(
+          Date.UTC(forecastNow.getUTCFullYear(), forecastNow.getUTCMonth() + 1, 0)
+        ).getUTCDate();
+        const daysLeftInMonth = daysInMonthFc - forecastNow.getUTCDate();
+        const projMonth = thisMonthSpend + daysLeftInMonth * dailyRate;
+        const proj30 = dailyRate * 30;
+
+        const budgetFc = config.taskDefaults?.budget;
+        const monthlyLimit = budgetFc?.monthlyUsd || 0;
+        const dailyLimit = budgetFc?.dailyUsd || 0;
+        const warnAtFc = budgetFc?.warnAtPercent ?? 80;
+
+        console.log(`    Daily run rate:          ${chalk.yellow("$" + dailyRate.toFixed(4) + "/day")}`);
+        console.log(`    Projected this week:     ${chalk.yellow("$" + projWeek.toFixed(4))}`);
+
+        if (monthlyLimit > 0) {
+          const pct = (projMonth / monthlyLimit) * 100;
+          const projColor = pct >= 100 ? chalk.red : pct >= warnAtFc ? chalk.yellow : chalk.green;
+          const projIcon = pct >= 100 ? " ⚠" : pct >= warnAtFc ? " ⚠" : " ✓";
+          console.log(`    Projected this month:    ${projColor("$" + projMonth.toFixed(4) + projIcon)}`);
+        } else {
+          console.log(`    Projected this month:    ${chalk.yellow("$" + projMonth.toFixed(4))}`);
+        }
+
+        console.log(`    Projected next 30 days:  ${chalk.yellow("$" + proj30.toFixed(4))}`);
+
+        if (dailyLimit > 0 && dailyRate > 0) {
+          const daysUntilExhausted = dailyLimit / dailyRate;
+          const exhaustColor =
+            daysUntilExhausted < 1 ? chalk.red : daysUntilExhausted < 3 ? chalk.yellow : chalk.green;
+          console.log(
+            `    Days until daily budget exhausted: ${exhaustColor(daysUntilExhausted.toFixed(1))}`
+          );
+        }
+
+        if (monthlyLimit > 0) {
+          const pct = (projMonth / monthlyLimit) * 100;
+          const indicator = pct >= 100 ? chalk.red("⚠") : pct >= warnAtFc ? chalk.yellow("⚠") : chalk.green("✓");
+          console.log(
+            `    Monthly budget status:   ${indicator} ${pct.toFixed(0)}% of $${monthlyLimit.toFixed(2)} limit projected`
+          );
+        }
+      }
+    }
+
+    console.log();
+  });
+
 // ── PARSE & RUN ────────────────────────────────────────────────────
 
 program.parse();

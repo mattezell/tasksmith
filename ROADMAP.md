@@ -64,8 +64,7 @@ Removed WorktreeManager, permission wrappers, sandbox plugin, template system. M
 **GitHub Actions integration**
 `tasksmith ci` — drops tasks from GitHub Actions workflows. Native PR comment trigger. `tasksmith watch` for auto-submitting labeled issues.
 
-**Cost dashboard**
-`tasksmith costs` — detailed cost breakdown with time-series data, budget alerts, spend forecasting.
+~~**Cost dashboard**~~ — ✅ Done. `tasksmith costs` with time-series, budgets, forecasting.
 
 **Cloud sync**
 Sync memory, task history, and config across machines. Encrypted. Optional.

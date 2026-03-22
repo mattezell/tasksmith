@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.1] — 2026-03-22
 
 ### Added
+- **Spend forecasting in `tasksmith costs`** — "Spend Forecast" section after the cost summary using a weighted moving average (WMA) over the last 14 days of daily cost totals. Shows daily run rate, projected week/month/30-day spend, and days until daily budget exhausted (if configured). Month projection is color-coded green/yellow/red based on configured monthly budget. Skips the section if no cost data; shows "Insufficient data" if fewer than 3 days of history.
+- **Budget configuration and alerting** — `taskDefaults.budget` config section with `dailyUsd`, `weeklyUsd`, `monthlyUsd`, and `warnAtPercent` (default 80%). `tasksmith costs` shows a Budget Status table (Limit | Spent | Remaining | Status) when limits are configured, with color-coded OK/Warning/Over states. Engine logs a warning when daily spend exceeds the limit after task completion (warn-only, never blocks execution).
+- **`tasksmith costs --period`** — time-series cost rollups grouped by `day` (default), `week` (ISO), or `month`. Displays Period | Tasks | Passed | Failed | Cost table with trend indicators (↑/↓/→) comparing each period to the previous. Totals row at bottom.
+- **Cost dashboard** — `tasksmith costs` command with spend breakdowns by model/project, time-series rollups (daily/weekly/monthly), budget alerts with configurable limits, and weighted-moving-average spend forecasting.
 - **Claude Code integration** — `tasksmith cc-install` registers TaskSmith as an MCP server with Claude Code, giving CC native access to all 13 TaskSmith tools. Supports `--scope user|project`. `tasksmith cc-uninstall` removes the registration.
 - **CLAUDE.md** — project context file for Claude Code CLI sessions. Loaded automatically by Claude Code when working in the repo.
 - **GitHub Actions CI** — `.github/workflows/ci.yml` runs `tsc` build and `vitest` tests on push/PR across Node 18, 20, and 22.

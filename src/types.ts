@@ -140,6 +140,14 @@ export interface FileSyncProvider {
 
 export type PermissionMode = "supervised" | "autonomous" | "yolo";
 
+export interface BudgetConfig {
+  dailyUsd: number;
+  weeklyUsd: number;
+  monthlyUsd: number;
+  /** Warn when spend reaches this % of the limit (default: 80) */
+  warnAtPercent: number;
+}
+
 export interface CircuitBreakerConfig {
   enabled: boolean;
   /** Max consecutive identical INFRA failures before ejection (default: 2) */
@@ -205,5 +213,6 @@ export interface TaskSmithConfig {
     model: string;
     priority: string;
     circuitBreaker?: CircuitBreakerConfig;
+    budget?: BudgetConfig;
   };
 }
