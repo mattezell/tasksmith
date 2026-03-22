@@ -15,7 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Claude Code integration** — `tasksmith cc-install` registers TaskSmith as an MCP server with Claude Code, giving CC native access to all 13 TaskSmith tools. Supports `--scope user|project`. `tasksmith cc-uninstall` removes the registration.
 - **CLAUDE.md** — project context file for Claude Code CLI sessions. Loaded automatically by Claude Code when working in the repo.
 - **GitHub Actions CI** — `.github/workflows/ci.yml` runs `tsc` build and `vitest` tests on push/PR across Node 18, 20, and 22.
-- **Housekeeping script** — `scripts/housekeeping.sh` deletes stale remote branches and creates version tags for v0.8.0–v0.8.6.
 
 ### Added
 - **Discord bot channel scoping** — guild + channel allowlist enforcement via `allowedGuildIds` and `allowedChannelIds` config arrays. Messages from unlisted guilds/channels are silently dropped. Warns on startup if no restrictions are configured. Backward-compatible with legacy `channelId` string config.

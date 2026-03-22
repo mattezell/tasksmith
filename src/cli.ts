@@ -756,7 +756,7 @@ function resolveTasksmithBin(ws: string): { command: string; args: string[] } {
     const bin = execSync("which tasksmith", { encoding: "utf-8", timeout: 5000 }).trim();
     if (bin) return { command: bin, args: ["mcp", "--dir", ws] };
   } catch { /* */ }
-  return { command: "npx", args: ["tasksmith", "mcp", "--dir", ws] };
+  return { command: "npx", args: ["tasksmith-cli", "mcp", "--dir", ws] };
 }
 
 program

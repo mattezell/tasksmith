@@ -170,8 +170,8 @@ class TaskLogger {
     }
   }
 
-  taskStart(task: { id: string; template: string; model: string; project: string; maxIterations: number }): void {
-    this.write({ event: "task_start", task: task.id, template: task.template, model: task.model, project: task.project, max_iterations: task.maxIterations });
+  taskStart(task: { id: string; template: string; model: string; project: string; maxIterations: number }, resolvedModel?: string): void {
+    this.write({ event: "task_start", task: task.id, template: task.template, model: resolvedModel ?? task.model, project: task.project, max_iterations: task.maxIterations });
   }
 
   iterStart(taskId: string, iteration: number, model: string): void {
@@ -932,7 +932,7 @@ export class TaskEngine {
     console.log(`[engine] Executing ${task.id}: template=${task.template} model=${initialModel}${cwdOverride ? ` cwd=${cwdOverride}` : ""}`);
 
     const tlog = new TaskLogger(this.workspace, task.id);
-    tlog.taskStart(task);
+    tlog.taskStart(task, initialModel);
 
     try {
       const isRalph = task.template === "ralph-loop" || Boolean(task.params.validation_command);
