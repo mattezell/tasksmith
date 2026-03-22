@@ -41,7 +41,7 @@ import { execSync } from "node:child_process";
 import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 import {
-  resolveWorkspace, loadConfig, scaffoldWorkspace, installBundledSkills, isTaskFile,
+  resolveWorkspace, loadConfig, scaffoldWorkspace, installBundledSkills, isTaskFile, resolveProjectsDir,
 } from "./config.js";
 import { sanitizeTask } from "./sanitize.js";
 import type { TaskSmithConfig, MemoryEntry } from "./types.js";
@@ -393,7 +393,7 @@ export async function startMCPServer(workspaceOrOptions?: string | MCPServerOpti
     "List all configured projects in the workspace. Use project names when submitting tasks.",
     {},
     async () => {
-      const projectsDir = join(workspace, "projects");
+      const projectsDir = resolveProjectsDir(workspace, config);
       if (!existsSync(projectsDir)) {
         return { content: [{ type: "text" as const, text: "No projects directory found." }] };
       }
@@ -532,19 +532,22 @@ export async function startMCPServer(workspaceOrOptions?: string | MCPServerOpti
         return { content: [{ type: "text" as const, text: "DAG registration failed. Check for cycles, missing IDs, or duplicate task IDs." }], isError: true };
       }
 
-      // Write individual tasks to inbox (the engine will pick them up)
-      for (const task of result.tasks) {
+      // Only write root tasks (no dependencies) to inbox.
+      // Blocked tasks are held by the DAG manager and released by the
+      // coordinator as their dependencies complete.
+      const rootTasks = result.tasks.filter(t => !t.depends_on || t.depends_on.length === 0);
+      for (const task of rootTasks) {
         const { data: clean } = sanitizeTask(task, "mcp");
         const taskFile = join(workspace, "tasks", "inbox", `${task.id}.yaml`);
         writeFileSync(taskFile, yaml.dump({
           ...clean,
           dag_id: result.dagId,
-          depends_on: task.depends_on || [],
+          depends_on: [],
           created_at: new Date().toISOString(),
         }));
       }
 
-      return { content: [{ type: "text" as const, text: `DAG '${result.dagId}' submitted with ${result.tasks.length} tasks. Root tasks placed in inbox.` }] };
+      return { content: [{ type: "text" as const, text: `DAG '${result.dagId}' submitted with ${result.tasks.length} tasks (${rootTasks.length} root). Root tasks placed in inbox.` }] };
     },
   );
 
@@ -659,7 +662,7 @@ export async function startMCPServer(workspaceOrOptions?: string | MCPServerOpti
 
   // ── Resources: projects ────────────────────────────────────────────
 
-  const projectsDir = join(workspace, "projects");
+  const projectsDir = resolveProjectsDir(workspace, config);
   if (existsSync(projectsDir)) {
     try {
       const projectEntries = readdirSync(projectsDir, { withFileTypes: true });

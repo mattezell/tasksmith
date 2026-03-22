@@ -625,7 +625,10 @@ export class Coordinator {
       this.workspace,
       { concurrency },
       async (task) => {
-        await this.pluginManager.executeHooks("beforeTaskExecute", { task });
+        const hookResult = await this.pluginManager.executeHooks("beforeTaskExecute", { task });
+        if (hookResult.task && typeof hookResult.task === "object") {
+          Object.assign(task, hookResult.task);
+        }
         await this.engine.execute(task);
         const ok = task.status === "completed";
         await this.pluginManager.executeHooks("afterTaskExecute", { task, ok });

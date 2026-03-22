@@ -36,7 +36,7 @@ export async function createAPIServer(
   workspace: string,
   engine: TaskEngine,
   memoryProviders: MemoryProvider[],
-  hostOrConfig: string | APIServerConfig = "0.0.0.0",
+  hostOrConfig: string | APIServerConfig = "127.0.0.1",
   portArg = 8420,
   approvalDecision?: ApprovalDecisionFn,
 ) {
@@ -45,7 +45,7 @@ export async function createAPIServer(
     ? { host: hostOrConfig, port: portArg }
     : hostOrConfig;
 
-  const host = cfg.host || "0.0.0.0";
+  const host = cfg.host || "127.0.0.1";
   const port = cfg.port || 8420;
   const authToken = cfg.authToken || "";
   const rateLimitPerMin = cfg.rateLimit ?? 0;

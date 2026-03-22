@@ -20,7 +20,7 @@ import type {
   CircuitBreakerConfig,
 } from "./types.js";
 import type { MarkdownMemoryProvider } from "./providers/memory/providers.js";
-import { isTaskFile, parseTaskFile } from "./config.js";
+import { isTaskFile, parseTaskFile, resolveProjectsDir } from "./config.js";
 import type { SessionArchiver } from "./providers/memory/providers.js";
 
 /** Parsed fields from Claude Code's --output-format json response. */
@@ -260,6 +260,7 @@ export class TaskEngine {
   private config: Record<string, any>;
   private defaults: Record<string, any>;
   private logLevel: string;
+  private projectsDir: string;
 
   readonly inbox: string;
   readonly active: string;
@@ -282,6 +283,7 @@ export class TaskEngine {
     this.config = config;
     this.defaults = config.taskDefaults || {};
     this.logLevel = (config.system?.logLevel || "INFO").toUpperCase();
+    this.projectsDir = resolveProjectsDir(workspace, config as any);
 
     this.inbox = join(workspace, "tasks", "inbox");
     this.active = join(workspace, "tasks", "active");
@@ -428,7 +430,7 @@ export class TaskEngine {
 
     // Project context
     if (task.project) {
-      const pd = join(this.workspace, "projects", task.project);
+      const pd = join(this.projectsDir, task.project);
       for (const [file, tag] of [["CLAUDE.md", "project_context"], ["TASKS.md", "project_backlog"]] as const) {
         const fp = join(pd, file);
         if (existsSync(fp)) parts.push(`<${tag}>\n${readFileSync(fp, "utf-8").trim()}\n</${tag}>`);
@@ -480,7 +482,7 @@ export class TaskEngine {
     // cwdOverride (worktree) takes priority, then project dir, then undefined
     let cwd: string | undefined = cwdOverride;
     if (!cwd && task.project) {
-      const pd = join(this.workspace, "projects", task.project);
+      const pd = join(this.projectsDir, task.project);
       if (!existsSync(pd) && (task.template === "project-init" || task.template === "project_init")) {
         // Green field: create the project directory so Claude Code has a clean workspace
         mkdirSync(pd, { recursive: true });
@@ -659,7 +661,7 @@ export class TaskEngine {
 
     let cwd: string | undefined = cwdOverride;
     if (!cwd && task.project) {
-      const pd = join(this.workspace, "projects", task.project);
+      const pd = join(this.projectsDir, task.project);
       if (existsSync(pd)) cwd = pd;
     }
 
@@ -667,7 +669,7 @@ export class TaskEngine {
     // the validation command to target the worktree instead.  Without this,
     // validation tests the unchanged main repo rather than Claude's changes.
     if (cwdOverride && task.project) {
-      const pd = join(this.workspace, "projects", task.project);
+      const pd = join(this.projectsDir, task.project);
       if (existsSync(pd)) {
         const realProjectPath = realpathSync(pd);
         if (cmd.includes(realProjectPath)) {
@@ -784,7 +786,7 @@ export class TaskEngine {
     // Worktree isolation: create if appropriate and no explicit cwdOverride
     let worktreePath: string | null = null;
     if (!cwdOverride && this.shouldUseWorktree(task)) {
-      const pd = join(this.workspace, "projects", task.project);
+      const pd = join(this.projectsDir, task.project);
       if (existsSync(pd)) {
         worktreePath = this.createWorktree(task, pd);
         if (worktreePath) cwdOverride = worktreePath;
