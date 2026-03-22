@@ -810,6 +810,35 @@ Input from MCP clients is sanitized with the same security layer as REST API and
 
 ---
 
+## Claude Code Integration
+
+Register TaskSmith as an MCP server in Claude Code with one command:
+
+```bash
+tasksmith cc-install              # register for all projects (user scope)
+tasksmith cc-install --scope project  # register for current project only
+```
+
+This gives Claude Code native access to all 13 TaskSmith MCP tools. Once installed,
+Claude Code can submit tasks, check status, search memory, and manage DAGs — directly
+from any conversation.
+
+```bash
+tasksmith cc-uninstall            # remove the registration
+```
+
+### What Gets Configured
+
+`cc-install` registers TaskSmith's MCP server with Claude Code by running
+`claude mcp add-json` (or writing to `~/.claude.json` / `.mcp.json` directly
+if the `claude` CLI isn't available).
+
+Tools available after install: `submit_task`, `get_task_status`, `list_tasks`,
+`cancel_task`, `retry_task`, `search_memory`, `store_memory`, `list_projects`,
+`queue_status`, `health_check`, `submit_dag`, `dag_status`, `list_dags`.
+
+---
+
 ## Task File Format
 
 ```yaml

@@ -749,6 +749,114 @@ program
     console.log();
   });
 
+// ── CC-INSTALL / CC-UNINSTALL ─────────────────────────────────────────
+
+function resolveTasksmithBin(ws: string): { command: string; args: string[] } {
+  try {
+    const bin = execSync("which tasksmith", { encoding: "utf-8", timeout: 5000 }).trim();
+    if (bin) return { command: bin, args: ["mcp", "--dir", ws] };
+  } catch { /* */ }
+  return { command: "npx", args: ["tasksmith", "mcp", "--dir", ws] };
+}
+
+program
+  .command("cc-install")
+  .description("Register TaskSmith as an MCP server with Claude Code")
+  .option("--scope <scope>", "Registration scope: user or project", "user")
+  .option("--dir <path>", "TaskSmith workspace to use (passed as --dir arg to mcp command)")
+  .action((opts) => {
+    const scope = opts.scope === "project" ? "project" : "user";
+    const ws = resolveWorkspace(opts.dir || program.opts().dir);
+    const { command, args } = resolveTasksmithBin(ws);
+    const mcpEntry = { command, args };
+    const configStr = JSON.stringify(mcpEntry);
+
+    let usedCli = false;
+    try {
+      execSync(`claude mcp add-json tasksmith '${configStr}' --scope ${scope}`, {
+        encoding: "utf-8",
+        timeout: 10000,
+        stdio: "pipe",
+      });
+      usedCli = true;
+    } catch { /* fall through to file-based */ }
+
+    if (!usedCli) {
+      const cfgPath = scope === "user"
+        ? join(homedir(), ".claude.json")
+        : join(process.cwd(), ".mcp.json");
+
+      let cfg: Record<string, any> = {};
+      if (existsSync(cfgPath)) {
+        try { cfg = JSON.parse(readFileSync(cfgPath, "utf-8")); } catch { /* */ }
+      }
+      if (!cfg.mcpServers) cfg.mcpServers = {};
+      const existed = !!cfg.mcpServers.tasksmith;
+      cfg.mcpServers.tasksmith = mcpEntry;
+      writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+      const target = scope === "user" ? "~/.claude.json" : ".mcp.json";
+      console.log(existed
+        ? chalk.yellow(`\n  ↻ Updated TaskSmith MCP registration in ${target}\n`)
+        : chalk.green(`\n  ✓ Registered TaskSmith MCP server in ${target}\n`));
+    } else {
+      console.log(chalk.green(`\n  ✓ TaskSmith MCP server registered (scope: ${scope})\n`));
+    }
+
+    console.log("  Available MCP tools:");
+    const tools = [
+      "submit_task", "get_task_status", "list_tasks", "cancel_task", "retry_task",
+      "search_memory", "store_memory", "list_projects", "queue_status", "health_check",
+      "submit_dag", "dag_status", "list_dags",
+    ];
+    for (const t of tools) console.log(`    ${chalk.cyan("·")} ${t}`);
+    console.log();
+  });
+
+program
+  .command("cc-uninstall")
+  .description("Remove TaskSmith MCP server registration from Claude Code")
+  .option("--scope <scope>", "Registration scope: user or project", "user")
+  .action((opts) => {
+    const scope = opts.scope === "project" ? "project" : "user";
+
+    let usedCli = false;
+    try {
+      execSync(`claude mcp remove tasksmith --scope ${scope}`, {
+        encoding: "utf-8",
+        timeout: 10000,
+        stdio: "pipe",
+      });
+      usedCli = true;
+    } catch { /* fall through to file-based */ }
+
+    if (!usedCli) {
+      const cfgPath = scope === "user"
+        ? join(homedir(), ".claude.json")
+        : join(process.cwd(), ".mcp.json");
+      const target = scope === "user" ? "~/.claude.json" : ".mcp.json";
+
+      if (!existsSync(cfgPath)) {
+        console.log(chalk.dim(`\n  Nothing to uninstall — ${target} not found.\n`));
+        return;
+      }
+
+      let cfg: Record<string, any> = {};
+      try { cfg = JSON.parse(readFileSync(cfgPath, "utf-8")); } catch { /* */ }
+
+      if (!cfg.mcpServers?.tasksmith) {
+        console.log(chalk.dim(`\n  TaskSmith MCP is not registered in ${target}.\n`));
+        return;
+      }
+
+      delete cfg.mcpServers.tasksmith;
+      writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+      console.log(chalk.green(`\n  ✓ Removed TaskSmith MCP registration from ${target}\n`));
+    } else {
+      console.log(chalk.green(`\n  ✓ TaskSmith MCP server removed (scope: ${scope})\n`));
+    }
+  });
+
 // ── APPROVE / REJECT ────────────────────────────────────────────────
 
 program

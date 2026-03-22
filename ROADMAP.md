@@ -59,8 +59,7 @@ Removed WorktreeManager, permission wrappers, sandbox plugin, template system. M
 
 ## v1.1.0 — Ecosystem (Next)
 
-**Ship as Claude Code plugin**
-`.claude/plugins/tasksmith/` — so Claude Code can natively submit tasks to TaskSmith.
+~~**Ship as Claude Code plugin**~~ — ✅ Done. `tasksmith cc-install` registers MCP server with Claude Code.
 
 **GitHub Actions integration**
 `tasksmith ci` — drops tasks from GitHub Actions workflows. Native PR comment trigger. `tasksmith watch` for auto-submitting labeled issues.
