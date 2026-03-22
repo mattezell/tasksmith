@@ -4,7 +4,7 @@ Lightweight agent orchestration built on [Claude Code](https://docs.anthropic.co
 
 Drop a task file. Walk away. Come back to passing tests.
 
-TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Chain tasks with dependency DAGs. Expose everything via MCP so agents can submit tasks to other agents. Schedule recurring tasks with cron. Under 8,000 lines of core TypeScript. 8 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
+TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch. Chain tasks with dependency DAGs. Expose everything via MCP so agents can submit tasks to other agents. Schedule recurring tasks with cron. Under 8,000 lines of core TypeScript. 8 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
 
 ```bash
 npm install -g tasksmith-cli
@@ -172,28 +172,30 @@ DAG state is persisted to `tasks/dags/` so active DAGs survive restarts. Each st
 
 ### Git Worktree Isolation
 
-Each parallel task can run in its own isolated git worktree — no clobbering:
+When running multiple tasks in parallel, each task gets its own git worktree — preventing concurrent tasks from clobbering each other's work:
 
 ```yaml
 engine:
-  concurrency: 3
-  worktree:
-    enabled: true
-    strategy: "pr"           # "pr" | "auto-merge" | "branch-only" | "local"
-    baseBranch: "main"
-    prLabels: ["tasksmith", "automated"]
+  concurrency: 3   # worktree isolation auto-enables when concurrency > 1
 ```
 
-| Strategy | On success |
-|----------|-----------|
-| **`pr`** (default) | Commits, pushes, opens a GitHub PR via `gh` CLI |
-| **`auto-merge`** | Merges into base branch (falls back to PR on conflicts) |
-| **`branch-only`** | Pushes the branch — you decide what to do |
-| **`local`** | Purely local — no push, no merge. Worktree and branch stay on disk for manual review |
+**How it works:**
 
-On failure, the worktree is discarded (except `local`, which always preserves). No damage to main. Override per-task with `params.worktree_strategy` or disable with `params.worktree: false`.
+1. Before the Ralph Loop starts, the engine creates a worktree: `git worktree add -b tasksmith/<task-id> <repo>/.claude/worktrees/<task-id> HEAD`
+2. All Claude Code invocations and validation commands run inside the worktree
+3. After the task completes (pass or fail), the worktree is removed
 
-**Project-aware:** Worktrees are created in the actual git repository, not the TaskSmith workspace. Project symlinks (e.g., `~/.tasksmith/projects/my-api` → `/home/user/code/my-api`) are resolved automatically via `realpathSync`.
+**Behavior:**
+
+- **Auto-enabled** when `engine.concurrency > 1` (multiple tasks would conflict without isolation)
+- **Explicit control:** Set `engine.worktree.enabled: true` to force on, or `false` to force off
+- **Per-task opt-out:** Set `params.worktree: false` on any task to skip isolation
+- **Requires a project:** Tasks without a `project` field have no git repo to isolate, so they run in-place
+- **Project-aware:** Project symlinks (e.g., `~/.tasksmith/projects/my-api` → `/home/user/code/my-api`) are resolved via `realpathSync`, so worktrees are created in the actual git repo
+
+**Branch naming:** `tasksmith/<task-id>` — branches are created from HEAD of the project's current branch. After task completion the worktree is removed, but the branch persists for review or PR creation.
+
+**Fallback:** If worktree creation fails (not a git repo, branch name conflict after retry), the task runs in the project directory directly with a console warning. No silent failures.
 
 ### Smart Model Routing
 
@@ -944,7 +946,7 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
-├── engine.ts           ~1,050 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing
+├── engine.ts           ~1,150 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, worktree isolation
 ├── cli.ts              ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── mcp.ts                ~700 lines  MCP server (stdio), 13 tools, 4+ resource types
 ├── coordinator.ts        ~700 lines  Wires providers + engine + pool + plugins + DAG
@@ -1052,7 +1054,7 @@ tasksmith doctor       # check prerequisites
 
 Optional:
 - [Git](https://git-scm.com/) for worktree isolation (you probably already have this)
-- [gh CLI](https://cli.github.com/) for automatic PR creation (worktree `pr` strategy)
+- [gh CLI](https://cli.github.com/) for `--from-github-issue` intake
 - [Ollama](https://ollama.com/) for local embeddings (semantic-memory plugin)
 - [wrangler](https://developers.cloudflare.com/workers/wrangler/) for Cloudflare deployments
 - [Docker](https://docker.com/) for container isolation plugin

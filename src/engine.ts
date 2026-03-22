@@ -306,6 +306,96 @@ export class TaskEngine {
     };
   }
 
+  // ── Worktree Isolation ─────────────────────────────────────────────
+
+  /**
+   * Resolve the git repo root for a project directory.
+   * Returns null if not a git repo.
+   */
+  private gitRoot(projectDir: string): string | null {
+    try {
+      return execSync("git rev-parse --show-toplevel", {
+        cwd: projectDir, encoding: "utf-8", timeout: 5000,
+      }).trim();
+    } catch { return null; }
+  }
+
+  /**
+   * Create a git worktree for a task. Returns the worktree path, or null
+   * if worktree creation fails (task will run in-place as fallback).
+   */
+  private createWorktree(task: Task, projectDir: string): string | null {
+    const root = this.gitRoot(projectDir);
+    if (!root) {
+      console.warn(`[engine] ${task.id} — not a git repo, skipping worktree isolation`);
+      return null;
+    }
+
+    // Sanitize task ID for branch/directory name
+    const safeName = task.id.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const branchName = `tasksmith/${safeName}`;
+    const worktreeDir = join(root, ".claude", "worktrees", safeName);
+
+    try {
+      mkdirSync(join(root, ".claude", "worktrees"), { recursive: true });
+      execSync(`git worktree add -b "${branchName}" "${worktreeDir}" HEAD`, {
+        cwd: root, encoding: "utf-8", timeout: 30_000,
+      });
+      console.log(`[engine] ${task.id} — worktree created: ${worktreeDir} (branch: ${branchName})`);
+      return worktreeDir;
+    } catch (e: any) {
+      // Branch may already exist from a previous run — try without -b
+      try {
+        execSync(`git worktree add "${worktreeDir}" "${branchName}"`, {
+          cwd: root, encoding: "utf-8", timeout: 30_000,
+        });
+        console.log(`[engine] ${task.id} — worktree reused: ${worktreeDir} (branch: ${branchName})`);
+        return worktreeDir;
+      } catch {
+        console.error(`[engine] ${task.id} — worktree creation failed: ${e.message}`);
+        console.warn(`[engine] ${task.id} — running WITHOUT worktree isolation`);
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Remove a worktree after task completion. Best-effort — won't fail the task.
+   */
+  private removeWorktree(worktreePath: string, taskId: string): void {
+    try {
+      execSync(`git worktree remove "${worktreePath}" --force`, {
+        encoding: "utf-8", timeout: 30_000,
+      });
+      console.log(`[engine] ${taskId} — worktree removed: ${worktreePath}`);
+    } catch (e: any) {
+      console.warn(`[engine] ${taskId} — worktree cleanup failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * Determine if worktree isolation should be used for this task.
+   * Enabled when concurrency > 1, or when engine config enables it,
+   * unless the task explicitly opts out via params.worktree = false.
+   */
+  private shouldUseWorktree(task: Task): boolean {
+    // Task-level opt-out
+    if (task.params.worktree === false || task.params.worktree === "false") return false;
+
+    // Must have a project to isolate
+    if (!task.project) return false;
+
+    const engineCfg = this.config.engine || {};
+    const concurrency = engineCfg.concurrency || 1;
+
+    // Explicit engine config
+    if (engineCfg.worktree?.enabled === true) return true;
+    if (engineCfg.worktree?.enabled === false) return false;
+
+    // Default: enable when concurrency > 1
+    return concurrency > 1;
+  }
+
   // ── Context Assembly (Compiled Prompt Pattern) ─────────────────────
 
   async assembleContext(task: Task): Promise<string> {
@@ -680,6 +770,16 @@ export class TaskEngine {
     task.startedAt = new Date().toISOString();
     this.processing.add(task.id);
 
+    // Worktree isolation: create if appropriate and no explicit cwdOverride
+    let worktreePath: string | null = null;
+    if (!cwdOverride && this.shouldUseWorktree(task)) {
+      const pd = join(this.workspace, "projects", task.project);
+      if (existsSync(pd)) {
+        worktreePath = this.createWorktree(task, pd);
+        if (worktreePath) cwdOverride = worktreePath;
+      }
+    }
+
     // Resolve initial model
     const { model: initialModel, routed } = this.resolveModel(task, 1, false);
     if (routed) {
@@ -846,6 +946,7 @@ export class TaskEngine {
         ejected: ejection !== null,
         ejection_rule: ejection?.rule || null,
         ejection_iteration: ejection ? task.iterations : null,
+        worktree: worktreePath || null,
       };
     } catch (e: any) {
       task.status = "failed";
@@ -857,6 +958,11 @@ export class TaskEngine {
       await this.finalize(task);
       await this.postMemory(task);
       await this.notify(task);
+
+      // Clean up worktree after task is fully complete
+      if (worktreePath) {
+        this.removeWorktree(worktreePath, task.id);
+      }
     }
   }
 

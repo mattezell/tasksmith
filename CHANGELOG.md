@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SECURITY.md** — comprehensive security documentation covering threat model (3-layer attack surface), input sanitization details (trust levels, field limits, command allowlists), permission modes, approval gates, channel scoping (Discord, REST, GitHub, Slack), 6 concrete prompt injection patterns with attacks/mitigations/residual risks, and deployment scenario recommendations.
 - **`tasksmith plugin run <name>`** — dynamic plugin command execution. Loads plugins, discovers registered commands, and runs them. Makes docker, cf, pg, proxmox, and semantic-memory plugin commands accessible.
 - **REST API approval endpoints** — `POST /tasks/:id/approve`, `POST /tasks/:id/reject`, `GET /tasks/pending` for remote approval gate management.
+- **Git worktree isolation** — engine creates a git worktree per task (`tasksmith/<task-id>` branch) for parallel execution safety. Auto-enables when `engine.concurrency > 1`. Per-task opt-out via `params.worktree: false`. Worktrees created in the project's actual git repo (symlinks resolved via `realpathSync`), cleaned up after task completion. Replaces the stripped WorktreeManager with a lightweight implementation (~85 lines).
 
 ### Fixed
 - **Discord bot channel filter bypass** — the previous single `channelId` filter could be bypassed by prefixing messages with `@tasksmith` from any channel. Now uses strict allowlist enforcement.
@@ -36,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **README plugin count** — intro said "9 bundled plugins", actually 8. Fixed.
 - **README architecture diagram** — listed "sms" as outbound provider, no SMS implementation exists. Replaced with "webhook".
 - **README/CLAUDE.md source tree line counts** — updated coordinator.ts (~547→~700), cli.ts (~960→~1,020), api.ts (~255→~300), comms/providers description, MCP resource count.
+- **README worktree documentation** — replaced phantom 4-strategy worktree config (pr/auto-merge/branch-only/local) with actual implementation. Removed false "auto-opens a PR on success" claim from intro. Fixed prerequisites section (removed phantom `gh` CLI worktree pr strategy reference).
 - **Stats script marketing buckets** — added finer thresholds (6k, 8k) between the 5k and 10k buckets. Core at 7,637 lines now correctly claims "under 8,000" instead of jumping to "under 10,000".
 - **Site version** — terminal mockup updated from v0.8.1 to v0.8.6.
 - **Site line counts** — OG meta, numbers section, and creator bio now reflect current "under 8,000" core line count.

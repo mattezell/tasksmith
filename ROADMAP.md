@@ -113,7 +113,7 @@ Collected during the v0.8.2 development session. These are concrete, scoped item
 - ~~**Auto-commit before merge**~~ — ✅ Done in v0.8.3
 - ~~**Validation worktree targeting**~~ — ✅ Done in v0.8.5. Validation commands with absolute `cd` paths now rewrite to the worktree path so engine validates Claude's actual changes.
 - ~~**Sanitizer local trust bypass**~~ — ✅ Done in v0.8.5. Local sources (file_drop, CLI) bypass shell metacharacter stripping. Prevents `&&` from being stripped from validation commands.
-- **Worktree-aware execution after branch failure** — Currently if worktree creation fails, the task runs in the project directory directly (no isolation). Should either retry with a unique branch suffix or clearly warn that isolation is lost.
+- ~~**Worktree-aware execution after branch failure**~~ — ✅ Done. Engine creates worktrees with retry on branch conflict, logs explicit warning when falling back to no isolation.
 - **Graceful iteration resume** — Track iteration progress in the task YAML so restarted tasks can resume from the last completed iteration instead of starting over.
 - **Per-task cost aggregation** — Sum `total_cost_usd` across all iterations for a task and write it to the completed task YAML. Feeds into the v0.9.0 cost tracking feature.
 - **Resume pending tasks on restart** — Tasks already in `active/` with `status: pending` should be picked up when the engine restarts, not orphaned.
@@ -179,6 +179,11 @@ Collected during the CCPort Round 2 campaign (v0.8.4). Multiple runs burned sign
 3. Periodic progress dashboard — eliminates manual `ls active/ | wc -l` polling
 4. Structured task log (JSONL) — enables `tasksmith logs --task abc` CLI for post-mortem
 5. Task YAML diagnostics — enriches the artifact for batch review
+
+### Known Debt
+
+- **Context window risk** — No truncation strategy if compiled prompts (directives + memory + task prompt) exceed model context limits. Large projects with extensive SOUL.md/CONVENTIONS.md could silently degrade Claude Code output quality.
+- **Test coverage** — Only circuit breaker has unit tests (40 tests). No integration tests, no provider tests, no CLI tests. High-value targets: sanitizer, scheduler cron parsing, DAG cycle detection, config layering.
 
 ---
 

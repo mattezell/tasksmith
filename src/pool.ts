@@ -2,7 +2,8 @@
  * TaskSmith Worker Pool
  *
  * Manages parallel task execution with configurable concurrency.
- * Worktree isolation is delegated to Claude Code via the --worktree flag.
+ * Worktree isolation is handled by the engine — each task with a project
+ * gets its own git worktree when concurrency > 1.
  *
  * Config in tasksmith.yaml:
  *

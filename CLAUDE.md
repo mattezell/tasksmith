@@ -20,7 +20,7 @@ Memory: hot (MEMORY.md) → warm (JSONL) → cold (gzipped archives)
 
 ```
 src/
-├── engine.ts          ~1,050 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing
+├── engine.ts          ~1,150 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing, worktree isolation
 ├── mcp.ts             ~700 lines    MCP server (13 tools, 4+ resource types)
 ├── cli.ts             ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── plugins.ts         ~566 lines    Plugin loader, lifecycle hooks
