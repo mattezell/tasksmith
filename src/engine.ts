@@ -443,10 +443,12 @@ export class TaskEngine {
   /**
    * Remove a worktree after task completion. Best-effort — won't fail the task.
    */
-  private removeWorktree(worktreePath: string, taskId: string): void {
+  private removeWorktree(worktreePath: string, taskId: string, projectDir?: string): void {
     try {
+      // Must run from the git repo root — without cwd, git can't find the worktree
+      const cwd = projectDir ? this.gitRoot(projectDir) ?? undefined : undefined;
       execSync(`git worktree remove "${worktreePath}" --force`, {
-        encoding: "utf-8", timeout: 30_000,
+        cwd, encoding: "utf-8", timeout: 30_000,
       });
       console.log(`[engine] ${taskId} — worktree removed: ${worktreePath}`);
     } catch (e: any) {
@@ -553,7 +555,7 @@ export class TaskEngine {
     const globalTs = join(homedir(), ".tasksmith");
     if (existsSync(globalTs)) args.push("--add-dir", globalTs);
     if (task.project) {
-      const projectTs = join(this.workspace, "projects", task.project, ".tasksmith");
+      const projectTs = join(this.projectsDir, task.project, ".tasksmith");
       if (existsSync(projectTs)) args.push("--add-dir", projectTs);
     }
 
@@ -863,10 +865,10 @@ export class TaskEngine {
 
     // Worktree isolation: create if appropriate and no explicit cwdOverride
     let worktreePath: string | null = null;
+    const projectDir = task.project ? join(this.projectsDir, task.project) : null;
     if (!cwdOverride && this.shouldUseWorktree(task)) {
-      const pd = join(this.projectsDir, task.project);
-      if (existsSync(pd)) {
-        worktreePath = this.createWorktree(task, pd);
+      if (projectDir && existsSync(projectDir)) {
+        worktreePath = this.createWorktree(task, projectDir);
         if (worktreePath) cwdOverride = worktreePath;
       }
     }
@@ -1080,7 +1082,7 @@ export class TaskEngine {
 
       // Clean up worktree after task is fully complete
       if (worktreePath) {
-        this.removeWorktree(worktreePath, task.id);
+        this.removeWorktree(worktreePath, task.id, projectDir ?? undefined);
       }
     }
   }
@@ -1204,6 +1206,8 @@ export class TaskEngine {
       error: data.error || "",
       iterations: data.iterations ?? 0,
       sourceFile,
+      dependsOn: data.depends_on || data.dependsOn || undefined,
+      dagId: data.dag_id || data.dagId || undefined,
       // Checkpoint cost — preserved across restarts for iteration resume
       ...(data._checkpoint_cost != null ? { _checkpointCost: data._checkpoint_cost } : {}),
     } as Task;

@@ -103,7 +103,9 @@ Every invocation gets your full context automatically:
 4. **GLOSSARY.md** — domain terms
 5. **MEMORY.md** — durable facts + recent daily logs
 6. **Project CLAUDE.md** — project-specific context
-7. **Template** — task instructions with your prompt injected
+7. **Skills** — Claude Code discovers task-type skills (ralph-loop, bug-hunt, etc.) via `--add-dir`
+
+Context is compiled into the prompt by the engine. Skills are loaded natively by Claude Code from the discovery paths — see [Skills](#skills-task-templates) below.
 
 You never copy-paste context again.
 

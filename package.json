@@ -22,6 +22,7 @@
   "files": [
     "dist/",
     "templates/",
+    ".claude/skills/",
     "README.md",
     "LICENSE"
   ],

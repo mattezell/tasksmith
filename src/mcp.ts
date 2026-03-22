@@ -521,33 +521,35 @@ export async function startMCPServer(workspaceOrOptions?: string | MCPServerOpti
     },
     async (args) => {
       const data: Record<string, any> = {
-        dag_id: args.dag_id,
+        dag_id: args.dag_id || `dag-${Date.now()}`,
         project: args.project,
         model: args.model,
         tasks: args.tasks,
       };
 
+      // Validate the DAG structure (cycles, missing IDs, duplicates) without
+      // registering it — registration happens in the coordinator when it picks
+      // up the DAG file from inbox via prescanInboxForDAGs → handleDAG.
       const result = dagManager.registerDAG(data);
       if (!result) {
         return { content: [{ type: "text" as const, text: "DAG registration failed. Check for cycles, missing IDs, or duplicate task IDs." }], isError: true };
       }
 
-      // Only write root tasks (no dependencies) to inbox.
-      // Blocked tasks are held by the DAG manager and released by the
-      // coordinator as their dependencies complete.
-      const rootTasks = result.tasks.filter(t => !t.depends_on || t.depends_on.length === 0);
-      for (const task of rootTasks) {
-        const { data: clean } = sanitizeTask(task, "mcp");
-        const taskFile = join(workspace, "tasks", "inbox", `${task.id}.yaml`);
-        writeFileSync(taskFile, yaml.dump({
-          ...clean,
-          dag_id: result.dagId,
-          depends_on: [],
+      // Write the full DAG file to inbox. The coordinator's prescanInboxForDAGs()
+      // detects files with a `tasks` array, routes them through handleDAG() which
+      // registers the DAG, holds blocked tasks, and submits root tasks.
+      const dagFile = join(workspace, "tasks", "inbox", `${result.dagId}.yaml`);
+      writeFileSync(dagFile, yaml.dump({
+        dag_id: result.dagId,
+        project: args.project,
+        model: args.model,
+        tasks: args.tasks.map(t => ({
+          ...t,
           created_at: new Date().toISOString(),
-        }));
-      }
+        })),
+      }));
 
-      return { content: [{ type: "text" as const, text: `DAG '${result.dagId}' submitted with ${result.tasks.length} tasks (${rootTasks.length} root). Root tasks placed in inbox.` }] };
+      return { content: [{ type: "text" as const, text: `DAG '${result.dagId}' submitted with ${result.tasks.length} tasks. Written to inbox for coordinator processing.` }] };
     },
   );
 

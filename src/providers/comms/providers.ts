@@ -122,21 +122,66 @@ export class SlackWebhookProvider implements OutboundCommsProvider {
 export class EmailProvider implements OutboundCommsProvider {
   readonly name = "email";
   private config: Record<string, unknown>;
+  private transporter: any = null;
 
   constructor(config: Record<string, unknown>) {
     this.config = config;
   }
 
+  private async getTransporter(): Promise<any> {
+    if (this.transporter) return this.transporter;
+    try {
+      // Dynamic import with variable to prevent TypeScript from resolving at compile time.
+      // nodemailer is an optional dependency — users install it only if they need email.
+      const pkg = "nodemailer";
+      const nodemailer = await import(pkg);
+      this.transporter = (nodemailer.default ?? nodemailer).createTransport({
+        host: this.config.smtpHost as string,
+        port: (this.config.smtpPort as number) || 587,
+        secure: (this.config.smtpPort as number) === 465,
+        auth: {
+          user: this.config.smtpUser as string,
+          pass: this.config.smtpPass as string,
+        },
+      });
+      return this.transporter;
+    } catch {
+      return null;
+    }
+  }
+
   async send(n: Notification): Promise<boolean> {
-    // Nodemailer-free SMTP: use child_process to call system sendmail
-    // or defer to a future nodemailer optional dep
-    // For now: write to comms/outbox as a file (picked up by any MTA)
-    console.warn("[email] Email provider requires nodemailer. Install: npm install nodemailer");
-    return false;
+    const transport = await this.getTransporter();
+    if (!transport) {
+      console.warn("[email] nodemailer not installed. Run: npm install nodemailer");
+      return false;
+    }
+    try {
+      await transport.sendMail({
+        from: this.config.fromAddr as string,
+        to: this.config.toAddr as string,
+        subject: `[TaskSmith] ${n.title}`,
+        text: n.body,
+      });
+      return true;
+    } catch (e: any) {
+      console.error(`[email] Send failed: ${e.message}`);
+      return false;
+    }
   }
 
   async test(): Promise<boolean> {
-    return false;
+    const transport = await this.getTransporter();
+    if (!transport) {
+      console.warn("[email] nodemailer not installed. Run: npm install nodemailer");
+      return false;
+    }
+    try {
+      await transport.verify();
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
