@@ -11,6 +11,7 @@ import {
   renameSync, unlinkSync, readdirSync, realpathSync,
 } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 import type {
@@ -466,6 +467,16 @@ export class TaskEngine {
     const dd = join(this.workspace, "directives");
     if (existsSync(dd)) args.push("--add-dir", dd);
 
+    // Skills discovery: --add-dir for global and project-level .tasksmith dirs.
+    // CC discovers .claude/skills/<name>/SKILL.md in each --add-dir path when
+    // CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 is set.
+    const globalTs = join(homedir(), ".tasksmith");
+    if (existsSync(globalTs)) args.push("--add-dir", globalTs);
+    if (task.project) {
+      const projectTs = join(this.workspace, "projects", task.project, ".tasksmith");
+      if (existsSync(projectTs)) args.push("--add-dir", projectTs);
+    }
+
     // cwdOverride (worktree) takes priority, then project dir, then undefined
     let cwd: string | undefined = cwdOverride;
     if (!cwd && task.project) {
@@ -492,7 +503,7 @@ export class TaskEngine {
       const child = spawn("claude", args, {
         cwd: spawnCwd,
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, CLAUDECODE: undefined },
+        env: { ...process.env, CLAUDECODE: undefined, CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" },
       });
 
       const timer = setTimeout(() => {

@@ -325,12 +325,12 @@ workspace:
 
 ---
 
-## Templates
+## Skills (Task Templates)
 
-Templates shape how Claude approaches a task. Each is a `PROMPT.md` with `{{prompt}}` and `{{project}}` placeholders.
+TaskSmith ships with 7 Claude Code skills that shape how Claude approaches each task type. Skills are installed to `~/.tasksmith/.claude/skills/` during setup and injected into every Claude Code session via `--add-dir`.
 
-| Template | Purpose |
-|----------|---------|
+| Skill | Purpose |
+|-------|---------|
 | `ralph-loop` | Iterate until valid — define a `validation_command`, retries on failure |
 | `bug-hunt` | Reproduce, analyze root cause, fix |
 | `code-review` | Security, performance, maintainability, convention adherence |
@@ -338,6 +338,40 @@ Templates shape how Claude approaches a task. Each is a `PROMPT.md` with `{{prom
 | `project-init` | Scaffold a new project with tests, CLAUDE.md, and git |
 | `doc-gen` | Generate or update documentation |
 | `heartbeat` | Scheduled: daily briefing, memory consolidation, health checks |
+
+### Skill Discovery (Three Layers)
+
+Skills are discovered by Claude Code from three locations:
+
+| Layer | Path | Scope |
+|-------|------|-------|
+| **Global TaskSmith** | `~/.tasksmith/.claude/skills/<name>/SKILL.md` | All tasks, all projects |
+| **Project TaskSmith** | `<project>/.tasksmith/.claude/skills/<name>/SKILL.md` | Tasks targeting that project |
+| **Project native** | `<project>/.claude/skills/<name>/SKILL.md` | CC's native discovery from cwd |
+
+The global layer ships with 7 bundled skills. Add your own by creating a `<name>/SKILL.md` in any layer — project-level skills let you customize task behavior per-project without affecting others.
+
+**Custom skill example:**
+
+```bash
+mkdir -p ~/.tasksmith/.claude/skills/deploy/
+cat > ~/.tasksmith/.claude/skills/deploy/SKILL.md << 'EOF'
+---
+name: deploy
+description: Deploy to staging with safety checks
+---
+
+# Deploy
+
+$ARGUMENTS
+
+## Steps
+1. Run the full test suite
+2. Build production artifacts
+3. Deploy to staging via the deploy script
+4. Verify health check endpoint responds
+EOF
+```
 
 ### Green Field Projects
 
@@ -375,22 +409,22 @@ params:
 
 The template generates: idiomatic project structure, dependency management (package.json / pyproject.toml / etc.), test directory with example tests, CLAUDE.md, .gitignore, and README with setup instructions. Combine with `validation_command` to verify the scaffolded project builds and tests pass before completing.
 
-### Template Resolution Chain
+### Skill File Format
 
-Templates resolve in priority order (first match wins):
+Each skill lives in its own directory with a `SKILL.md` file containing YAML frontmatter:
 
-1. **Project-local:** `.tasksmith/templates/`
-2. **Workspace:** `<workspace>/templates/`
-3. **Global:** `~/.tasksmith/templates/`
-4. **Claude Code Skills:** `.claude/skills/` (v1.0.0 migrated built-in templates to Skills format)
-
-Override any built-in:
-
-```bash
-mkdir -p .tasksmith/templates/ralph_loop
-cp "$(npm root -g)/tasksmith-cli/templates/ralph_loop/PROMPT.md" .tasksmith/templates/ralph_loop/
-# edit to your liking
 ```
+~/.tasksmith/.claude/skills/
+├── ralph-loop/SKILL.md
+├── bug-hunt/SKILL.md
+├── code-review/SKILL.md
+├── doc-gen/SKILL.md
+├── research/SKILL.md
+├── heartbeat/SKILL.md
+└── project-init/SKILL.md
+```
+
+**Overriding a bundled skill:** Create a skill with the same name in a project-level `.tasksmith/.claude/skills/` directory. Project-level skills take precedence.
 
 ---
 
@@ -802,7 +836,7 @@ scheduling:
     - name: "nightly-consolidation"
       template: heartbeat
       prompt: "Consolidate memory"
-      schedule: "0 2 * * *"
+      cron: "0 2 * * *"
       enabled: true
 
 communication:
@@ -822,7 +856,7 @@ communication:
       enabled: false
       config:
         port: 8421
-        secret: "${GITHUB_WEBHOOK_SECRET}"
+        webhookSecret: "${GITHUB_WEBHOOK_SECRET}"
         triggerLabels: ["tasksmith"]
     - provider: slack_events
       enabled: false
@@ -946,14 +980,14 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
-├── engine.ts           ~1,150 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, worktree isolation
+├── engine.ts           ~1,170 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, worktree isolation
 ├── cli.ts              ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── mcp.ts                ~700 lines  MCP server (stdio), 13 tools, 4+ resource types
 ├── coordinator.ts        ~700 lines  Wires providers + engine + pool + plugins + DAG
 ├── plugins.ts            ~566 lines  Plugin loader, lifecycle hooks, scaffolding
 ├── dag.ts                ~450 lines  Task DAG: dependency resolution, cycle detection, Mermaid export
 ├── sanitize.ts           ~375 lines  Input sanitization: trust levels, allowlist validation
-├── config.ts             ~325 lines  Workspace resolution, config layering
+├── config.ts             ~355 lines  Workspace resolution, config layering, skill installation
 ├── api.ts                ~300 lines  REST API server (Fastify) — auth + rate limiting + approval
 ├── onboarding.ts         ~251 lines  Simplified setup wizard
 ├── scheduler.ts          ~237 lines  Cron-based task scheduling

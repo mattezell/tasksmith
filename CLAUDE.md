@@ -20,14 +20,14 @@ Memory: hot (MEMORY.md) → warm (JSONL) → cold (gzipped archives)
 
 ```
 src/
-├── engine.ts          ~1,150 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing, worktree isolation
+├── engine.ts          ~1,170 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing, worktree isolation
 ├── mcp.ts             ~700 lines    MCP server (13 tools, 4+ resource types)
 ├── cli.ts             ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── plugins.ts         ~566 lines    Plugin loader, lifecycle hooks
 ├── coordinator.ts     ~700 lines    Wires providers + engine + pool + plugins + DAG
 ├── dag.ts             ~450 lines    Task DAG — dependency workflows, cycle detection, Mermaid export
 ├── sanitize.ts        ~375 lines    Input sanitization, trust levels, allowlists
-├── config.ts          ~325 lines    Workspace resolution, config layering
+├── config.ts          ~360 lines    Workspace resolution, config layering, skill installation
 ├── api.ts             ~300 lines    REST API server (Fastify) — auth + rate limiting + approval
 ├── onboarding.ts      ~251 lines    Simplified setup wizard
 ├── scheduler.ts       ~237 lines    Cron-based task scheduling (daemon-level, not session-scoped)
@@ -39,7 +39,8 @@ src/
 │   └── memory/        ~241 lines    Three-tier memory (hot/warm/cold)
 ├── plugins/bundled/               8 official plugins (~2,800 lines total)
 └── __tests__/                     Vitest tests
-.claude/skills/                    Claude Code skills (ralph-loop, bug-hunt, etc.)
+.claude/skills/                    Bundled Claude Code skills (ralph-loop, bug-hunt, etc.)
+                                   Each skill: <name>/SKILL.md — installed to ~/.tasksmith/.claude/skills/
 ```
 
 ## Build & Test
@@ -58,7 +59,8 @@ npm run dev            # tsc --watch
 - **Plugin = function** — a plugin is a single function receiving a context object. No class hierarchies.
 - **Lazy loading** — bundled plugins import on-demand via dynamic `import()`. Disabled plugins add zero startup cost.
 - **Config layering** — `defaults → global (~/.tasksmith) → project-local (.tasksmith/) → task-level params`. Deep merge at each layer.
-- **Leverage Claude Code native** — worktrees, permissions, sandboxing, and skills are delegated to Claude Code CLI's native capabilities. TaskSmith doesn't reimplement what CC does natively.
+- **Leverage Claude Code native** — permissions, sandboxing, and skills are delegated to Claude Code CLI's native capabilities. TaskSmith doesn't reimplement what CC does natively.
+- **Three-layer skills** — bundled skills installed to `~/.tasksmith/.claude/skills/`, project skills in `<project>/.tasksmith/.claude/skills/`, plus CC's native `.claude/skills/` discovery from cwd. Engine passes `--add-dir` to CC with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`.
 
 ## When Making Changes
 

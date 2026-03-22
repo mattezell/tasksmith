@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`tasksmith plugin run <name>`** — dynamic plugin command execution. Loads plugins, discovers registered commands, and runs them. Makes docker, cf, pg, proxmox, and semantic-memory plugin commands accessible.
 - **REST API approval endpoints** — `POST /tasks/:id/approve`, `POST /tasks/:id/reject`, `GET /tasks/pending` for remote approval gate management.
 - **Git worktree isolation** — engine creates a git worktree per task (`tasksmith/<task-id>` branch) for parallel execution safety. Auto-enables when `engine.concurrency > 1`. Per-task opt-out via `params.worktree: false`. Worktrees created in the project's actual git repo (symlinks resolved via `realpathSync`), cleaned up after task completion. Replaces the stripped WorktreeManager with a lightweight implementation (~85 lines).
+- **Three-layer skill discovery** — skills are now properly discovered by Claude Code via `--add-dir` with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`. Three layers: global (`~/.tasksmith/.claude/skills/`), project-local (`<project>/.tasksmith/.claude/skills/`), and CC-native (`<cwd>/.claude/skills/`). Users can create custom skills at any layer.
+- **Skill installation on setup** — `installBundledSkills()` copies bundled skills from the npm package to the workspace `.claude/skills/` directory. Only installs missing skills — user modifications are preserved.
+
+### Changed
+- **Skill file format** — migrated from flat `<name>.md` files to Claude Code's standard `<name>/SKILL.md` directory structure. Required for CC's native skill discovery mechanism.
 
 ### Fixed
 - **Discord bot channel filter bypass** — the previous single `channelId` filter could be bypassed by prefixing messages with `@tasksmith` from any channel. Now uses strict allowlist enforcement.

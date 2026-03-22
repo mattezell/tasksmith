@@ -15,7 +15,7 @@
  * File formats: YAML (.yaml/.yml) and JSON (.json) for both config and task files.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -120,6 +120,7 @@ const WORKSPACE_DIRS = [
   "projects", "memory/sessions", "memory/logs",
   "comms/outbox", "comms/inbox",
   "output", "scripts",
+  ".claude/skills",
 ];
 
 /** Global config directory — always ~/.tasksmith */
@@ -209,6 +210,34 @@ export function workspaceInfo(workspace: string): { mode: string; path: string; 
 export function scaffoldWorkspace(workspace: string): void {
   for (const dir of WORKSPACE_DIRS) {
     mkdirSync(join(workspace, dir), { recursive: true });
+  }
+}
+
+/**
+ * Install bundled TaskSmith skills into the workspace's .claude/skills/ directory.
+ * Skills are Claude Code skill files (SKILL.md) that provide task-specific instructions.
+ * Copies from the package's .claude/skills/ to the workspace — existing user modifications
+ * are preserved (only writes if the file does not exist).
+ */
+export function installBundledSkills(workspace: string): void {
+  const bundledDir = join(__dirname, "..", ".claude", "skills");
+  if (!existsSync(bundledDir)) return;
+
+  const skillDirs = readdirSync(bundledDir).filter(name => {
+    try { return statSync(join(bundledDir, name)).isDirectory(); } catch { return false; }
+  });
+
+  for (const skillName of skillDirs) {
+    const srcFile = join(bundledDir, skillName, "SKILL.md");
+    if (!existsSync(srcFile)) continue;
+
+    const destDir = join(workspace, ".claude", "skills", skillName);
+    const destFile = join(destDir, "SKILL.md");
+
+    mkdirSync(destDir, { recursive: true });
+    if (!existsSync(destFile)) {
+      copyFileSync(srcFile, destFile);
+    }
   }
 }
 

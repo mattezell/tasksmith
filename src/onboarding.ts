@@ -9,7 +9,7 @@
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { execSync } from "node:child_process";
-import { scaffoldWorkspace, saveConfig, backupConfig, DEFAULT_CONFIG } from "./config.js";
+import { scaffoldWorkspace, saveConfig, backupConfig, installBundledSkills, DEFAULT_CONFIG } from "./config.js";
 import { OUTBOUND_REGISTRY } from "./providers/comms/providers.js";
 import type { TaskSmithConfig } from "./types.js";
 
@@ -65,6 +65,7 @@ async function stepPrereqs(): Promise<boolean> {
 async function stepInit(workspace: string) {
   step(2, 4, "Initialize Workspace");
   scaffoldWorkspace(workspace);
+  installBundledSkills(workspace);
   console.log(`    ${chalk.green("✓")} Workspace at ${workspace}`);
 }
 

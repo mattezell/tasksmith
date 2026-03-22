@@ -41,7 +41,7 @@ import { execSync } from "node:child_process";
 import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
 import {
-  resolveWorkspace, loadConfig, scaffoldWorkspace, isTaskFile,
+  resolveWorkspace, loadConfig, scaffoldWorkspace, installBundledSkills, isTaskFile,
 } from "./config.js";
 import { sanitizeTask } from "./sanitize.js";
 import type { TaskSmithConfig, MemoryEntry } from "./types.js";
@@ -74,6 +74,7 @@ export async function startMCPServer(workspaceOrOptions?: string | MCPServerOpti
   const workspace = resolveWorkspace(opts.workspaceOverride);
   const config = loadConfig(workspace);
   scaffoldWorkspace(workspace);
+  installBundledSkills(workspace);
 
   // Initialize memory providers — use injected ones or create fresh
   let memoryProviders: MemoryProvider[] = opts.memoryProviders || [];

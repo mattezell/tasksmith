@@ -10,7 +10,7 @@ import { writeFileSync, unlinkSync, mkdirSync, readdirSync, readFileSync, rename
 import yaml from "js-yaml";
 import chalk from "chalk";
 import { v4 as uuidv4 } from "uuid";
-import { scaffoldWorkspace } from "./config.js";
+import { scaffoldWorkspace, installBundledSkills } from "./config.js";
 import { TaskEngine } from "./engine.js";
 import { createAPIServer } from "./api.js";
 import { OUTBOUND_REGISTRY, createInboundProvider } from "./providers/comms/providers.js";
@@ -515,6 +515,7 @@ export class Coordinator {
 
   async run(): Promise<void> {
     scaffoldWorkspace(this.workspace);
+    installBundledSkills(this.workspace);
 
     console.log(chalk.blue("\n  Building providers..."));
     this.buildOutbound();
