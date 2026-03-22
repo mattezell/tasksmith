@@ -115,9 +115,9 @@ Collected during the v0.8.2 development session. These are concrete, scoped item
 - ~~**Validation worktree targeting**~~ — ✅ Done in v0.8.5. Validation commands with absolute `cd` paths now rewrite to the worktree path so engine validates Claude's actual changes.
 - ~~**Sanitizer local trust bypass**~~ — ✅ Done in v0.8.5. Local sources (file_drop, CLI) bypass shell metacharacter stripping. Prevents `&&` from being stripped from validation commands.
 - ~~**Worktree-aware execution after branch failure**~~ — ✅ Done. Engine creates worktrees with retry on branch conflict, logs explicit warning when falling back to no isolation.
-- **Graceful iteration resume** — Track iteration progress in the task YAML so restarted tasks can resume from the last completed iteration instead of starting over.
-- **Per-task cost aggregation** — Sum `total_cost_usd` across all iterations for a task and write it to the completed task YAML. Feeds into the v0.9.0 cost tracking feature.
-- **Resume pending tasks on restart** — Tasks already in `active/` with `status: pending` should be picked up when the engine restarts, not orphaned.
+- ~~**Graceful iteration resume**~~ — ✅ Done in v1.0.1. Engine writes checkpoints to active task YAML after each iteration. On restart, tasks resume from last completed iteration with cumulative cost preserved.
+- ~~**Per-task cost aggregation**~~ — ✅ Done. `diagnostics.total_cost_usd` written to completed/failed task YAML. Feeds into metrics plugin.
+- ~~**Resume pending tasks on restart**~~ — ✅ Done in v1.0.1. `engine.resumeActive()` scans active/ on startup, coordinator submits orphaned tasks to the worker pool.
 
 ### Observability & Human-Readable Logging
 
@@ -178,7 +178,7 @@ Collected during the CCPort Round 2 campaign (v0.8.4). Multiple runs burned sign
 1. ~~Validation failure detail in console~~ — ✅ Done. Stderr head, exit code, and executed command logged per iteration.
 2. ~~Failure classification + contradiction detection~~ — ✅ Done. `[INFRA]`/`[BUILD]`/`[TEST]`/`[TIMEOUT]` tags, agent-vs-engine contradiction warnings.
 3. ~~Periodic progress dashboard~~ — ✅ Done. Configurable interval status line with active/queued/completed/failed counts.
-4. **Structured task log (JSONL)** — Not yet implemented. Per-task `.jsonl` event log for post-mortem analysis.
+4. ~~Structured task log (JSONL)~~ — ✅ Done. Per-task `logs/task-<id>.jsonl` with `task_start`, `iter_start`, `cc_complete`, `validation`, `iter_end`, `rate_limited`, `ejected`, `task_end` events.
 5. ~~Task YAML diagnostics~~ — ✅ Done. `diagnostics` section written to completed/failed task YAML.
 
 ### Known Debt

@@ -638,6 +638,15 @@ export class Coordinator {
       poolLog,
     );
 
+    // Resume orphaned tasks from active/ (left behind by crash or restart)
+    const orphaned = this.engine.resumeActive();
+    if (orphaned.length > 0) {
+      console.log(chalk.yellow(`  ⚠  Resuming ${orphaned.length} orphaned task(s) from active/`));
+      for (const task of orphaned) {
+        this.pool.submit(task);
+      }
+    }
+
     // Pool-aware inbox scanner (with DAG detection and sanitization)
     this.scanInterval = setInterval(() => {
       if (this.shutdownRequested) return;

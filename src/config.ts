@@ -119,6 +119,7 @@ const WORKSPACE_DIRS = [
   "tasks/inbox", "tasks/active", "tasks/completed", "tasks/failed", "tasks/pending_approval", "tasks/examples",
   "projects", "memory/sessions", "memory/logs",
   "comms/outbox", "comms/inbox",
+  "logs",
   "output", "scripts",
   ".claude/skills",
 ];

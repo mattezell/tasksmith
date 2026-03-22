@@ -121,6 +121,25 @@ Define a validation command. TaskSmith runs Claude Code, checks the output, feed
 
 After every task, the engine writes a summary to all tiers. Over time, Claude accumulates real project knowledge.
 
+### Structured Task Logs
+
+Every task gets an append-only JSONL event log at `<workspace>/logs/task-<id>.jsonl`. Each line is a timestamped event:
+
+```jsonl
+{"ts":"...","event":"task_start","task":"abc","template":"ralph-loop","model":"opus","project":"my-api","max_iterations":5}
+{"ts":"...","event":"iter_start","task":"abc","iter":1,"model":"opus"}
+{"ts":"...","event":"cc_complete","task":"abc","iter":1,"turns":33,"cost":1.07,"duration_ms":45000}
+{"ts":"...","event":"validation","task":"abc","iter":1,"cmd":"npm test","exit_code":1,"classification":"TEST","contradiction":false}
+{"ts":"...","event":"iter_end","task":"abc","iter":1,"passed":false,"failure_class":"TEST","cumulative_cost":1.07}
+{"ts":"...","event":"task_end","task":"abc","status":"completed","total_cost_usd":3.21,"iterations_used":3}
+```
+
+Survives engine restarts (append-only files, no in-memory state). Use for post-mortem analysis, cost attribution, and debugging without parsing console output.
+
+### Crash Recovery
+
+If the engine crashes or restarts mid-task, orphaned tasks in `tasks/active/` are automatically resumed on next startup. The engine checkpoints iteration progress and cumulative cost after each iteration, so resumed tasks pick up from the last completed iteration — no wasted tokens re-running iterations that already succeeded.
+
 ### Parallel Execution
 
 Run multiple tasks simultaneously with a configurable worker pool:
@@ -980,7 +999,7 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
-├── engine.ts           ~1,170 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, worktree isolation
+├── engine.ts           ~1,260 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, JSONL task log
 ├── cli.ts              ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
 ├── mcp.ts                ~700 lines  MCP server (stdio), 13 tools, 4+ resource types
 ├── coordinator.ts        ~700 lines  Wires providers + engine + pool + plugins + DAG

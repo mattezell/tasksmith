@@ -7,7 +7,7 @@
 
 import { execSync, execFileSync, spawnSync, spawn } from "node:child_process";
 import {
-  existsSync, readFileSync, writeFileSync, mkdirSync,
+  existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync,
   renameSync, unlinkSync, readdirSync, realpathSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -141,6 +141,84 @@ export interface IterationSnapshot {
 export interface EjectionResult {
   rule: string;   // INFRA_STUCK, CONTRADICTION_LOOP, STUCK_LOOP, COST_CEILING, TIMEOUT_STUCK
   reason: string;
+}
+
+// =============================================================================
+// STRUCTURED TASK LOG — per-task JSONL event log for post-mortem analysis
+// =============================================================================
+
+/**
+ * Append-only per-task JSONL logger.
+ * Writes to `<workspace>/logs/task-<id>.jsonl`. Each line is a timestamped event.
+ * Survives engine restarts (append-only file, no in-memory state).
+ */
+class TaskLogger {
+  private filePath: string;
+
+  constructor(workspace: string, taskId: string) {
+    const logDir = join(workspace, "logs");
+    mkdirSync(logDir, { recursive: true });
+    this.filePath = join(logDir, `task-${taskId}.jsonl`);
+  }
+
+  private write(event: Record<string, unknown>): void {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...event });
+    try {
+      appendFileSync(this.filePath, line + "\n");
+    } catch {
+      // Non-fatal — structured log is best-effort. Console logging is primary.
+    }
+  }
+
+  taskStart(task: { id: string; template: string; model: string; project: string; maxIterations: number }): void {
+    this.write({ event: "task_start", task: task.id, template: task.template, model: task.model, project: task.project, max_iterations: task.maxIterations });
+  }
+
+  iterStart(taskId: string, iteration: number, model: string): void {
+    this.write({ event: "iter_start", task: taskId, iter: iteration, model });
+  }
+
+  ccComplete(taskId: string, iteration: number, cc: CCJsonResult | null): void {
+    this.write({
+      event: "cc_complete", task: taskId, iter: iteration,
+      turns: cc?.num_turns ?? null, cost: cc?.total_cost_usd ?? null,
+      duration_ms: cc?.duration_ms ?? null, is_error: cc?.is_error ?? false,
+      result_summary: cc?.result?.slice(0, 500) ?? null,
+    });
+  }
+
+  validation(taskId: string, iteration: number, v: ValidationResult, contradiction: boolean): void {
+    this.write({
+      event: "validation", task: taskId, iter: iteration,
+      cmd: v.command, exit_code: v.exitCode, passed: v.passed,
+      classification: v.failureClass,
+      stderr: v.stderrHead?.slice(0, 500) || null,
+      contradiction,
+    });
+  }
+
+  iterEnd(taskId: string, iteration: number, passed: boolean, failureClass: string, cumulativeCost: number): void {
+    this.write({
+      event: "iter_end", task: taskId, iter: iteration,
+      passed, failure_class: failureClass, cumulative_cost: Math.round(cumulativeCost * 10000) / 10000,
+    });
+  }
+
+  rateLimited(taskId: string, iteration: number, sleepMs: number): void {
+    this.write({ event: "rate_limited", task: taskId, iter: iteration, sleep_ms: sleepMs });
+  }
+
+  ejected(taskId: string, iteration: number, rule: string, reason: string): void {
+    this.write({ event: "ejected", task: taskId, iter: iteration, rule, reason });
+  }
+
+  taskResume(taskId: string, resumeFrom: number, priorCost: number): void {
+    this.write({ event: "task_resume", task: taskId, resume_from: resumeFrom, prior_cost: priorCost });
+  }
+
+  taskEnd(taskId: string, status: string, diagnostics: Record<string, unknown>): void {
+    this.write({ event: "task_end", task: taskId, status, ...diagnostics });
+  }
 }
 
 /**
@@ -801,14 +879,24 @@ export class TaskEngine {
 
     console.log(`[engine] Executing ${task.id}: template=${task.template} model=${initialModel}${cwdOverride ? ` cwd=${cwdOverride}` : ""}`);
 
+    const tlog = new TaskLogger(this.workspace, task.id);
+    tlog.taskStart(task);
+
     try {
       const isRalph = task.template === "ralph-loop" || Boolean(task.params.validation_command);
       const maxIter = isRalph ? task.maxIterations : 1;
       let lastErr = "";
-      let totalCost = 0;
       let lastValidation: ValidationResult | null = null;
       let contradictionDetected = false;
       let ejection: EjectionResult | null = null;
+
+      // Resume support: pick up from last completed iteration
+      const resumeFrom = task.iterations > 0 ? task.iterations + 1 : 1;
+      let totalCost = (task as any)._checkpointCost ?? 0;
+      if (resumeFrom > 1) {
+        console.log(`[engine] ${task.id} resuming from iteration ${resumeFrom} (${task.iterations} completed, cost so far: $${totalCost.toFixed(4)})`);
+        tlog.taskResume(task.id, resumeFrom, totalCost);
+      }
 
       // Circuit breaker: merge defaults < config < task-level overrides
       const cbDefaults: CircuitBreakerConfig = {
@@ -822,12 +910,13 @@ export class TaskEngine {
       };
       const cbHistory: IterationSnapshot[] = [];
 
-      for (let i = 1; i <= maxIter; i++) {
+      for (let i = resumeFrom; i <= maxIter; i++) {
         task.iterations = i;
 
         // Resolve model for this iteration (may escalate after failures)
         const { model: iterModel } = this.resolveModel(task, i, lastErr !== "");
         task.model = iterModel;
+        tlog.iterStart(task.id, i, iterModel);
 
         let prompt = await this.assembleContext(task);
 
@@ -845,6 +934,7 @@ export class TaskEngine {
 
         // Accumulate cost across iterations
         if (ccOutput?.total_cost_usd) totalCost += ccOutput.total_cost_usd;
+        tlog.ccComplete(task.id, i, ccOutput);
 
         // Rate limit detection: pause and retry without counting the iteration
         const rateLimit = detectRateLimit(ccOutput);
@@ -853,6 +943,7 @@ export class TaskEngine {
             ? rateLimit.resetTime.toLocaleTimeString()
             : `${Math.round(rateLimit.sleepMs / 60000)}min`;
           console.warn(`[engine] ${task.id} rate limited — pausing until ${resumeStr}`);
+          tlog.rateLimited(task.id, i, rateLimit.sleepMs);
           await this.flushMemory(task, `Rate limited at iteration ${i}. Pausing until ${resumeStr}`);
           await sleep(rateLimit.sleepMs / 1000);
           console.log(`[engine] ${task.id} resuming after rate limit pause`);
@@ -865,7 +956,9 @@ export class TaskEngine {
           // Use parsed result text if available (more informative than raw JSON)
           if (ccOutput?.result) lastErr = ccOutput.result;
           console.warn(`[engine] ${task.id} iteration ${i} failed: ${lastErr.slice(0, 200)}`);
+          tlog.iterEnd(task.id, i, false, "CC_ERROR", totalCost);
           if (i < maxIter) {
+            this.checkpoint(task, totalCost);
             await this.flushMemory(task, `Iteration ${i} error: ${lastErr.slice(0, 500)}`);
             await sleep((task.params.cooldown_seconds as number) || 5);
             continue;
@@ -876,6 +969,8 @@ export class TaskEngine {
         if (isRalph) {
           const v = this.validate(task, cwdOverride);
           if (v.passed) {
+            tlog.validation(task.id, i, v, false);
+            tlog.iterEnd(task.id, i, true, "NONE", totalCost);
             task.result = `Passed after ${i} iteration(s) [model: ${iterModel}]`;
             task.status = "completed";
             console.log(`[engine] ${task.id} iteration ${i}: ✓ validation passed`);
@@ -909,6 +1004,8 @@ export class TaskEngine {
             }
           }
 
+          tlog.validation(task.id, i, v, agentClaimedSuccess);
+
           // Circuit breaker: record this iteration and check for ejection
           cbHistory.push({
             iteration: i,
@@ -922,16 +1019,22 @@ export class TaskEngine {
           ejection = evaluateCircuitBreaker(cbHistory, cbConfig);
           if (ejection) {
             console.error(`[engine] ${task.id} ⛔ CIRCUIT BREAKER: ${ejection.rule} — ${ejection.reason}`);
+            tlog.ejected(task.id, i, ejection.rule, ejection.reason);
+            tlog.iterEnd(task.id, i, false, v.failureClass, totalCost);
             task.error = `Early ejection (${ejection.rule}): ${ejection.reason}`;
             task.status = "failed";
             break;
           }
 
+          tlog.iterEnd(task.id, i, false, v.failureClass, totalCost);
+
           if (i < maxIter) {
+            this.checkpoint(task, totalCost);
             await this.flushMemory(task, `[${v.failureClass}] Validation failed #${i} (exit ${v.exitCode}): ${v.stderrHead.slice(0, 300) || lastErr.slice(0, 300)}`);
             await sleep((task.params.cooldown_seconds as number) || 5);
           }
         } else {
+          tlog.iterEnd(task.id, i, true, "NONE", totalCost);
           task.result = "Completed";
           task.status = "completed";
           break;
@@ -949,7 +1052,7 @@ export class TaskEngine {
         ? { failureClass: "NONE" as const, exitCode: 0, stderrHead: "" }
         : lastValidation;
 
-      (task as any).diagnostics = {
+      const diagnostics = {
         total_cost_usd: Math.round(totalCost * 10000) / 10000,
         iterations_used: task.iterations,
         failure_class: finalValidation?.failureClass || "NONE",
@@ -961,10 +1064,13 @@ export class TaskEngine {
         ejection_iteration: ejection ? task.iterations : null,
         worktree: worktreePath || null,
       };
+      (task as any).diagnostics = diagnostics;
+      tlog.taskEnd(task.id, task.status, diagnostics);
     } catch (e: any) {
       task.status = "failed";
       task.error = e.message;
       console.error(`[engine] ${task.id} exception:`, e);
+      tlog.taskEnd(task.id, "failed", { error: e.message });
     } finally {
       task.completedAt = new Date().toISOString();
       this.processing.delete(task.id);
@@ -1005,7 +1111,22 @@ export class TaskEngine {
     }
   }
 
-  // ── Finalization ───────────────────────────────────────────────────
+  // ── Checkpointing & Finalization ────────────────────────────────────
+
+  /**
+   * Write iteration checkpoint to active task YAML.
+   * On restart, the engine reads this to resume from the last completed iteration.
+   */
+  private checkpoint(task: Task, cumulativeCost: number): void {
+    const activeFile = join(this.active, `${task.id}.yaml`);
+    if (!existsSync(activeFile)) return;
+    try {
+      (task as any)._checkpointCost = Math.round(cumulativeCost * 10000) / 10000;
+      writeFileSync(activeFile, taskToYaml(task));
+    } catch {
+      // Non-fatal — checkpoint is best-effort
+    }
+  }
 
   private async finalize(task: Task): Promise<void> {
     const destDir = task.status === "completed" ? this.completed : this.failed;
@@ -1075,15 +1196,17 @@ export class TaskEngine {
       priority: data.priority || this.defaults.priority || "normal",
       maxIterations: data.max_iterations ?? data.maxIterations ?? this.defaults.maxIterations ?? 5,
       notify: data.notify || ["all"],
-      status: "pending",
+      status: data.status || "pending",
       createdAt: data.created_at || data.createdAt || now,
-      startedAt: "",
-      completedAt: "",
-      result: "",
-      error: "",
-      iterations: 0,
+      startedAt: data.started_at || data.startedAt || "",
+      completedAt: data.completed_at || data.completedAt || "",
+      result: data.result || "",
+      error: data.error || "",
+      iterations: data.iterations ?? 0,
       sourceFile,
-    };
+      // Checkpoint cost — preserved across restarts for iteration resume
+      ...(data._checkpoint_cost != null ? { _checkpointCost: data._checkpoint_cost } : {}),
+    } as Task;
   }
 
   // ── Inbox Processing ───────────────────────────────────────────────
@@ -1146,6 +1269,34 @@ export class TaskEngine {
     for (const f of files) {
       await this.processFile(join(this.inbox, f));
     }
+  }
+
+  /**
+   * Resume orphaned tasks from active/ directory on engine restart.
+   * Tasks left in active/ after a crash or restart are parsed and returned
+   * for re-execution. They retain their iteration count so the Ralph Loop
+   * resumes from the last checkpoint instead of starting over.
+   */
+  resumeActive(): Task[] {
+    const files = readdirSync(this.active)
+      .filter(f => isTaskFile(f))
+      .filter(f => !f.startsWith("."))
+      .sort();
+
+    const tasks: Task[] = [];
+    for (const f of files) {
+      try {
+        const filePath = join(this.active, f);
+        const content = readFileSync(filePath, "utf-8");
+        const task = this.parseTask(content, filePath);
+        // Already in active/ — no rename needed
+        console.log(`[engine] Resuming orphaned task ${task.id} (iterations: ${task.iterations}, status: ${task.status})`);
+        tasks.push(task);
+      } catch (e: any) {
+        console.warn(`[engine] Failed to resume ${f}: ${e.message}`);
+      }
+    }
+    return tasks;
   }
 }
 
