@@ -10,7 +10,7 @@ import {
   existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync,
   renameSync, unlinkSync, readdirSync, realpathSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { v4 as uuidv4 } from "uuid";
 import yaml from "js-yaml";
@@ -479,6 +479,40 @@ export class TaskEngine {
     return concurrency > 1;
   }
 
+  // ── Skill Resolution ─────────────────────────────────────────────
+
+  /**
+   * Resolve the SKILL.md content for a given template name.
+   * Search order (first match wins):
+   *   1. Project-level: <projectDir>/.tasksmith/.claude/skills/<template>/SKILL.md
+   *   2. Workspace:     <workspace>/.claude/skills/<template>/SKILL.md
+   *   3. Global:        ~/.tasksmith/.claude/skills/<template>/SKILL.md
+   */
+  private resolveSkill(template: string, project?: string): string | null {
+    const candidates: string[] = [];
+
+    // Project-level
+    if (project) {
+      candidates.push(join(this.projectsDir, project, ".tasksmith", ".claude", "skills", template, "SKILL.md"));
+    }
+
+    // Workspace
+    candidates.push(join(this.workspace, ".claude", "skills", template, "SKILL.md"));
+
+    // Global
+    const globalTs = join(homedir(), ".tasksmith", ".claude", "skills", template, "SKILL.md");
+    candidates.push(globalTs);
+
+    for (const fp of candidates) {
+      if (existsSync(fp)) {
+        try {
+          return readFileSync(fp, "utf-8");
+        } catch { /* skip unreadable */ }
+      }
+    }
+    return null;
+  }
+
   // ── Context Assembly (Compiled Prompt Pattern) ─────────────────────
 
   async assembleContext(task: Task): Promise<string> {
@@ -517,7 +551,18 @@ export class TaskEngine {
       }
     }
 
-    parts.push(task.prompt);
+    // Skill/template injection: resolve the SKILL.md for task.template and inject
+    // its content into the prompt. $ARGUMENTS is replaced with the task prompt.
+    // Search order: project .tasksmith → workspace → global ~/.tasksmith (first match wins).
+    const skillContent = this.resolveSkill(task.template, task.project);
+    if (skillContent) {
+      // Strip YAML frontmatter (---...---) and inject with $ARGUMENTS replaced
+      const body = skillContent.replace(/^---[\s\S]*?---\s*/, "").trim();
+      const injected = body.replace(/\$ARGUMENTS/g, task.prompt);
+      parts.push(`<skill>\n${injected}\n</skill>`);
+    } else {
+      parts.push(task.prompt);
+    }
 
     let prompt = parts.join("\n\n");
 
@@ -549,11 +594,16 @@ export class TaskEngine {
     const dd = join(this.workspace, "directives");
     if (existsSync(dd)) args.push("--add-dir", dd);
 
-    // Skills discovery: --add-dir for global and project-level .tasksmith dirs.
+    // Skills discovery: --add-dir for workspace, global, and project-level dirs.
     // CC discovers .claude/skills/<name>/SKILL.md in each --add-dir path when
     // CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 is set.
+    // Workspace root (may differ from global when --dir or TASKSMITH_DIR is used)
+    if (existsSync(this.workspace)) args.push("--add-dir", this.workspace);
+    // Global ~/.tasksmith (skip if same as workspace to avoid duplicate)
     const globalTs = join(homedir(), ".tasksmith");
-    if (existsSync(globalTs)) args.push("--add-dir", globalTs);
+    if (existsSync(globalTs) && resolve(globalTs) !== resolve(this.workspace)) {
+      args.push("--add-dir", globalTs);
+    }
     if (task.project) {
       const projectTs = join(this.projectsDir, task.project, ".tasksmith");
       if (existsSync(projectTs)) args.push("--add-dir", projectTs);

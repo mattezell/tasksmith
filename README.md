@@ -103,9 +103,9 @@ Every invocation gets your full context automatically:
 4. **GLOSSARY.md** — domain terms
 5. **MEMORY.md** — durable facts + recent daily logs
 6. **Project CLAUDE.md** — project-specific context
-7. **Skills** — Claude Code discovers task-type skills (ralph-loop, bug-hunt, etc.) via `--add-dir`
+7. **Skill** — the SKILL.md matching `task.template` is resolved and injected, with `$ARGUMENTS` replaced by your prompt
 
-Context is compiled into the prompt by the engine. Skills are loaded natively by Claude Code from the discovery paths — see [Skills](#skills-task-templates) below.
+Context is compiled into the prompt by the engine. The skill for a task's template is resolved from three layers (project → workspace → global) and injected directly into the prompt — see [Skills](#skills-task-templates) below.
 
 You never copy-paste context again.
 
@@ -348,7 +348,7 @@ workspace:
 
 ## Skills (Task Templates)
 
-TaskSmith ships with 7 Claude Code skills that shape how Claude approaches each task type. Skills are installed to `~/.tasksmith/.claude/skills/` during setup and injected into every Claude Code session via `--add-dir`.
+TaskSmith ships with 7 Claude Code skills that shape how Claude approaches each task type. Skills are installed to `~/.tasksmith/.claude/skills/` during setup. When a task runs, the engine resolves the SKILL.md matching `task.template`, replaces `$ARGUMENTS` with the task prompt, and injects the result into the compiled prompt. Skills are also exposed to Claude Code via `--add-dir` for native discovery.
 
 | Skill | Purpose |
 |-------|---------|
