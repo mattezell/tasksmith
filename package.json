@@ -1,6 +1,6 @@
 {
   "name": "tasksmith-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The unattended ops layer for Claude Code",
   "type": "module",
   "main": "dist/index.js",

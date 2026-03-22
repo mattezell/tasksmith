@@ -407,7 +407,7 @@ params:
   validation_command: "pytest"
 ```
 
-The template generates: idiomatic project structure, dependency management (package.json / pyproject.toml / etc.), test directory with example tests, CLAUDE.md, .gitignore, and README with setup instructions. Combine with `validation_command` to verify the scaffolded project builds and tests pass before completing.
+TaskSmith creates the project directory and passes the `project-init` skill to Claude Code, which generates the scaffold. Typical output includes: project structure, dependency management (package.json / pyproject.toml / etc.), test directory with example tests, CLAUDE.md, .gitignore, and README. Actual output depends on Claude's interpretation of your prompt. Combine with `validation_command` to verify the scaffolded project builds and tests pass before completing.
 
 ### Skill File Format
 

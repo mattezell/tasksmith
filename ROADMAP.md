@@ -23,6 +23,7 @@
 | **0.8.5** | ✅ Done | Validation worktree targeting, sanitizer local trust bypass, `medium` priority |
 | **0.8.6** | ✅ Done | Worktree setup (copy node_modules), circuit breaker, diagnostics fix |
 | **1.0.0** | ✅ Done | Unattended ops pivot — stripped CC overlap, Phase 2 differentiators |
+| **1.0.1** | ✅ Done | Audit fixes, skill discovery, worktree isolation, approval sync, projectsDir, DAG ordering |
 
 ---
 
@@ -81,11 +82,11 @@ Use TaskSmith to develop TaskSmith.
 
 - Submit feature tasks via Discord bot
 - Validate with `tsc && npm test` in Ralph Loop
-- PRs opened automatically via worktree `pr` strategy
-- Nightly memory consolidation via heartbeat template
+- PRs opened manually from worktree branches
+- Nightly memory consolidation via scheduled heartbeat task
 - Metrics dashboard on tasksmith.dev
 
-Target: after v0.8.x security pass.
+Target: after v1.0.x stabilization.
 
 ---
 
@@ -174,11 +175,11 @@ Collected during the CCPort Round 2 campaign (v0.8.4). Multiple runs burned sign
    - This is the data the operator greps when reviewing a batch of completed/failed tasks
 
 **Implementation priority (ordered by "would have saved us the most pain"):**
-1. Validation failure detail in console — highest ROI, would have caught every issue in <1 minute
-2. Failure classification + contradiction detection — would have prevented 8-iteration burn loops
-3. Periodic progress dashboard — eliminates manual `ls active/ | wc -l` polling
-4. Structured task log (JSONL) — enables `tasksmith logs --task abc` CLI for post-mortem
-5. Task YAML diagnostics — enriches the artifact for batch review
+1. ~~Validation failure detail in console~~ — ✅ Done. Stderr head, exit code, and executed command logged per iteration.
+2. ~~Failure classification + contradiction detection~~ — ✅ Done. `[INFRA]`/`[BUILD]`/`[TEST]`/`[TIMEOUT]` tags, agent-vs-engine contradiction warnings.
+3. ~~Periodic progress dashboard~~ — ✅ Done. Configurable interval status line with active/queued/completed/failed counts.
+4. **Structured task log (JSONL)** — Not yet implemented. Per-task `.jsonl` event log for post-mortem analysis.
+5. ~~Task YAML diagnostics~~ — ✅ Done. `diagnostics` section written to completed/failed task YAML.
 
 ### Known Debt
 

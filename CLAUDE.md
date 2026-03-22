@@ -71,7 +71,7 @@ npm run dev            # tsc --watch
 
 ## Current Version
 
-v1.0.0 — the "unattended ops" pivot. Stripped reimplemented CC features (worktree management, permission wrappers, sandbox plugin, template system). Migrated templates to Claude Code Skills format. Strengthened core differentiators: fire-and-forget task queue, Ralph Loop + circuit breaker, cross-task memory, multi-channel I/O, smart model routing, DAGs, MCP server, cron scheduler. Phase 2 additions: cost tracking with smart routing savings, GitHub webhook + Slack Events inbound providers, `--from-github-issue` CLI intake, DAG Mermaid visualization, task insights engine, REST API auth + rate limiting.
+v1.0.1 — audit fixes, skill discovery, worktree isolation, approval sync, projectsDir, DAG ordering. See CHANGELOG.md for full details.
 
 ## Known Debt
 

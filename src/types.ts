@@ -153,9 +153,14 @@ export interface CircuitBreakerConfig {
   costCeilingUsd: number;
 }
 
+export interface WorktreeConfig {
+  enabled?: boolean;
+}
+
 export interface EngineConfig {
   concurrency: number;
   permissionMode: PermissionMode;
+  worktree?: WorktreeConfig;
 }
 
 export interface ProviderEntry {
