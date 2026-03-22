@@ -126,7 +126,7 @@ engine:
       - params: { proxmox: true } # VM provisioning
 ```
 
-Matched tasks are parked until explicitly approved via `tasksmith approve <id>`. Auto-rejected after timeout. This is **off by default** — enable it when accepting tasks from sources you don't fully control.
+Matched tasks are parked until explicitly approved via `tasksmith approve <id>`, or via REST API (`POST /tasks/:id/approve`). Auto-rejected after timeout. This is **off by default** — enable it when accepting tasks from sources you don't fully control.
 
 ---
 

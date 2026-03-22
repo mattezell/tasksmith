@@ -51,7 +51,7 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
       { provider: "file_drop", enabled: true, config: {} },
       { provider: "discord_bot", enabled: false, config: { botToken: "", allowedGuildIds: [], allowedChannelIds: [], commandPrefix: "@tasksmith" } },
       { provider: "rest_api", enabled: false, config: { host: "0.0.0.0", port: 8420 } },
-      { provider: "github_webhook", enabled: false, config: { port: 8421, secret: "", triggerLabels: ["tasksmith"] } },
+      { provider: "github_webhook", enabled: false, config: { port: 8421, webhookSecret: "", triggerLabels: ["tasksmith"] } },
       { provider: "slack_events", enabled: false, config: { port: 8422, signingSecret: "", channelIds: [] } },
       { provider: "watched_folder", enabled: false, config: { path: "" } },
     ],
@@ -87,9 +87,9 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
   scheduling: {
     provider: "cron",
     tasks: [
-      { name: "memory_consolidation", schedule: "0 3 * * *", template: "heartbeat", params: { type: "memory_consolidation" }, enabled: true },
-      { name: "daily_briefing", schedule: "0 8 * * *", template: "heartbeat", params: { type: "daily_briefing" }, enabled: false },
-      { name: "health_check", schedule: "0 * * * *", template: "heartbeat", params: { type: "health_check" }, enabled: true },
+      { name: "memory_consolidation", cron: "0 3 * * *", template: "heartbeat", prompt: "Consolidate memory, prune stale entries, summarize today", params: { type: "memory_consolidation" }, enabled: true },
+      { name: "daily_briefing", cron: "0 8 * * *", template: "heartbeat", prompt: "Generate daily briefing with task summary and priorities", params: { type: "daily_briefing" }, enabled: false },
+      { name: "health_check", cron: "0 * * * *", template: "heartbeat", prompt: "Run health checks on all projects", params: { type: "health_check" }, enabled: true },
     ],
   },
   taskDefaults: {
@@ -116,7 +116,7 @@ export const DEFAULT_CONFIG: TaskSmithConfig = {
 
 const WORKSPACE_DIRS = [
   "config", "directives",
-  "tasks/inbox", "tasks/active", "tasks/completed", "tasks/failed", "tasks/examples",
+  "tasks/inbox", "tasks/active", "tasks/completed", "tasks/failed", "tasks/pending_approval", "tasks/examples",
   "projects", "memory/sessions", "memory/logs",
   "comms/outbox", "comms/inbox",
   "output", "scripts",

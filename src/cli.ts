@@ -504,6 +504,45 @@ pluginCmd
 
 
 pluginCmd
+  .command("run <name>")
+  .description("Run a plugin command (e.g. plugin run docker, plugin run cf)")
+  .argument("[args...]", "Arguments to pass to the plugin command")
+  .action(async (name: string, args: string[]) => {
+    const { PluginManager } = await import("./plugins.js");
+    const ws = resolveWorkspace(program.opts().dir);
+    const config = loadConfig(ws);
+    const pm = new PluginManager(ws, config as any);
+    await pm.loadFromConfig();
+    await pm.activateAll();
+
+    const commands = pm.getCommands();
+    const entry = commands.get(name);
+    if (!entry) {
+      const available = [...commands.keys()];
+      console.error(chalk.red(`Unknown plugin command: ${name}`));
+      if (available.length > 0) {
+        console.error(chalk.dim(`Available: ${available.join(", ")}`));
+      } else {
+        console.error(chalk.dim("No plugin commands registered. Enable plugins in your config."));
+      }
+      process.exit(1);
+    }
+
+    try {
+      // Convert positional args to a record for the plugin handler
+      const argRecord: Record<string, string> = {};
+      args.forEach((a: string, i: number) => { argRecord[`arg${i}`] = a; });
+      if (args[0]) argRecord.action = args[0]; // First arg is typically the action
+      await entry.handler.action(argRecord);
+    } catch (e: any) {
+      console.error(chalk.red(`[${entry.pluginName}] ${name} failed: ${e.message}`));
+      process.exit(1);
+    }
+
+    await pm.deactivateAll();
+  });
+
+pluginCmd
   .command("create <name>")
   .description("Scaffold a new plugin")
   .action(async (name: string) => {

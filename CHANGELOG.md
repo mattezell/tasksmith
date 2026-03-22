@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord bot channel scoping** — guild + channel allowlist enforcement via `allowedGuildIds` and `allowedChannelIds` config arrays. Messages from unlisted guilds/channels are silently dropped. Warns on startup if no restrictions are configured. Backward-compatible with legacy `channelId` string config.
 - **Human-in-the-loop approval gates** — opt-in `engine.approvalGates` config with rule-based matching (template, params, source). Matched tasks are parked in `tasks/pending_approval/`, operator notified via all outbound providers. `tasksmith approve <taskId>` / `tasksmith reject <taskId>` CLI commands. Auto-rejects after configurable timeout (default 60min). Off by default — zero behavior change for existing users.
 - **SECURITY.md** — comprehensive security documentation covering threat model (3-layer attack surface), input sanitization details (trust levels, field limits, command allowlists), permission modes, approval gates, channel scoping (Discord, REST, GitHub, Slack), 6 concrete prompt injection patterns with attacks/mitigations/residual risks, and deployment scenario recommendations.
+- **`tasksmith plugin run <name>`** — dynamic plugin command execution. Loads plugins, discovers registered commands, and runs them. Makes docker, cf, pg, proxmox, and semantic-memory plugin commands accessible.
+- **REST API approval endpoints** — `POST /tasks/:id/approve`, `POST /tasks/:id/reject`, `GET /tasks/pending` for remote approval gate management.
 
 ### Fixed
 - **Discord bot channel filter bypass** — the previous single `channelId` filter could be bypassed by prefixing messages with `@tasksmith` from any channel. Now uses strict allowlist enforcement.
@@ -27,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Missing inbound providers in config** — added `github_webhook` and `slack_events` to DEFAULT_CONFIG inbound array so users can discover them.
 - **MCP resource count** — comment header said 5 resources, actually 4.
 - **README phantom documentation** — removed extensive docs for sandbox plugin (removed in v1.0.0), `engine.permissions` allow/deny lists (never implemented), `engine.worktree` config (never implemented), `workspace.templatesDir` (never implemented), `sms_twilio` provider (never implemented), `tasksmith templates` command (removed in v1.0.0). Updated source tree line counts, fixed MCP tool count (12→13), removed duplicate sandbox.ts listing.
+- **Scheduler config field mismatch** — DEFAULT_CONFIG used `schedule` (wrong key) instead of `cron`, and was missing required `prompt` field. Scheduled tasks would fail to parse at runtime.
+- **GitHub webhook config key mismatch** — DEFAULT_CONFIG used `secret` but provider constructor reads `webhookSecret`. Provider would silently skip initialization.
+- **DAG submission via file drop** — DAG files placed in inbox were parsed as individual tasks (failing due to missing prompt field). Inbox scanner now pre-scans for DAGs and routes them through DAGManager before individual task pickup.
+- **Inbox scanner sanitization gap** — tasks picked up by `engine.pickupAll()` bypassed `sanitizeTask()`. Now sanitized in the coordinator scan loop for external-trust sources.
+- **README plugin count** — intro said "9 bundled plugins", actually 8. Fixed.
+- **README architecture diagram** — listed "sms" as outbound provider, no SMS implementation exists. Replaced with "webhook".
+- **README/CLAUDE.md source tree line counts** — updated coordinator.ts (~547→~700), cli.ts (~960→~1,020), api.ts (~255→~300), comms/providers description, MCP resource count.
 - **Stats script marketing buckets** — added finer thresholds (6k, 8k) between the 5k and 10k buckets. Core at 7,637 lines now correctly claims "under 8,000" instead of jumping to "under 10,000".
 - **Site version** — terminal mockup updated from v0.8.1 to v0.8.6.
 - **Site line counts** — OG meta, numbers section, and creator bio now reflect current "under 8,000" core line count.

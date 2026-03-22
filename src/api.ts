@@ -5,6 +5,9 @@
  * GET    /tasks              List tasks by status
  * GET    /tasks/:id          Get task details
  * DELETE /tasks/:id          Cancel a task
+ * POST   /tasks/:id/approve  Approve a pending task
+ * POST   /tasks/:id/reject   Reject a pending task
+ * GET    /tasks/pending      List tasks awaiting approval
  * GET    /health             System health
  * POST   /memory/search      Search memory
  * GET    /status             Full system status
@@ -245,6 +248,58 @@ export async function createAPIServer(
     }
 
     return { queue, directives, memoryProviders: memoryProviders.map(p => p.name) };
+  });
+
+  // ── Approve task ────────────────────────────────────────────
+
+  app.post("/tasks/:id/approve", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const approvalDir = join(workspace, "tasks", "pending_approval");
+    const fp = join(approvalDir, `${id}.yaml`);
+    if (!existsSync(fp)) {
+      reply.status(404);
+      return { error: `Task ${id} not found in pending_approval` };
+    }
+    const data = yaml.load(readFileSync(fp, "utf-8")) as any;
+    delete data.status; // Remove pending_approval status so engine treats it as pending
+    writeFileSync(join(workspace, "tasks", "inbox", `${id}.yaml`), yaml.dump(data));
+    unlinkSync(fp);
+    return { id, status: "approved" };
+  });
+
+  // ── Reject task ─────────────────────────────────────────────
+
+  app.post("/tasks/:id/reject", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body || {}) as Record<string, any>;
+    const approvalDir = join(workspace, "tasks", "pending_approval");
+    const fp = join(approvalDir, `${id}.yaml`);
+    if (!existsSync(fp)) {
+      reply.status(404);
+      return { error: `Task ${id} not found in pending_approval` };
+    }
+    const data = yaml.load(readFileSync(fp, "utf-8")) as any;
+    data.status = "failed";
+    data.error = `Rejected${body.reason ? `: ${body.reason}` : ""}`;
+    data.completed_at = new Date().toISOString();
+    writeFileSync(join(workspace, "tasks", "failed", `${id}.yaml`), yaml.dump(data));
+    unlinkSync(fp);
+    return { id, status: "rejected" };
+  });
+
+  // ── List pending approvals ──────────────────────────────────
+
+  app.get("/tasks/pending", async () => {
+    const approvalDir = join(workspace, "tasks", "pending_approval");
+    if (!existsSync(approvalDir)) return { tasks: [], count: 0 };
+    const tasks: any[] = [];
+    for (const f of readdirSync(approvalDir).filter(f => f.endsWith(".yaml"))) {
+      try {
+        const data = yaml.load(readFileSync(join(approvalDir, f), "utf-8")) as any;
+        if (data) tasks.push(data);
+      } catch { /* skip */ }
+    }
+    return { tasks, count: tasks.length };
   });
 
   // ── Start ────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
  */
 
 import { join, dirname } from "node:path";
-import { writeFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { writeFileSync, unlinkSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import yaml from "js-yaml";
 import chalk from "chalk";
 import { v4 as uuidv4 } from "uuid";
@@ -24,7 +24,6 @@ import type {
 } from "./types.js";
 import { sanitizeTask, trustLevel } from "./sanitize.js";
 import { DAGManager } from "./dag.js";
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -343,6 +342,34 @@ export class Coordinator {
   // ── DAG Handling ──────────────────────────────────────────────────
 
   /**
+   * Pre-scan inbox for DAG files before pickupAll processes them.
+   * DAG files have a `tasks` array and `dag_id` field. Without this,
+   * they'd fail parseTask (no prompt field) and land in failed/.
+   */
+  private prescanInboxForDAGs(): void {
+    const inboxDir = join(this.workspace, "tasks", "inbox");
+    const files = readdirSync(inboxDir).filter(f => /\.(yaml|yml|json)$/.test(f) && !f.startsWith(".")).sort();
+    for (const f of files) {
+      const fp = join(inboxDir, f);
+      try {
+        const raw = readFileSync(fp, "utf-8");
+        const data = f.endsWith(".json") ? JSON.parse(raw) : yaml.load(raw) as Record<string, any>;
+        if (data && typeof data === "object" && DAGManager.isDAG(data)) {
+          // Move to failed dir on error, or remove after successful DAG registration
+          try {
+            this.handleDAG(data, "file_drop");
+            unlinkSync(fp);
+            console.log(`[coordinator] DAG file ${f} processed and removed from inbox`);
+          } catch (e: any) {
+            console.error(`[coordinator] DAG file ${f} failed: ${e.message}`);
+            renameSync(fp, join(this.workspace, "tasks", "failed", f));
+          }
+        }
+      } catch { /* Not valid YAML/JSON or read error — let pickupAll handle it */ }
+    }
+  }
+
+  /**
    * Handle a DAG submission. Registers the DAG, sanitizes all tasks,
    * and submits root tasks (those with no dependencies) immediately.
    * Tasks with unmet dependencies are held in dagPending.
@@ -581,13 +608,31 @@ export class Coordinator {
       poolLog,
     );
 
-    // Pool-aware inbox scanner
+    // Pool-aware inbox scanner (with DAG detection and sanitization)
     this.scanInterval = setInterval(() => {
       if (this.shutdownRequested) return;
       try {
+        // Pre-scan: detect DAG files and route them before pickupAll parses them as tasks
+        this.prescanInboxForDAGs();
+
         const tasks = this.engine.pickupAll();
         for (const task of tasks) {
-          this.submitTask(task, task.sourceFile || "file_drop");
+          // Sanitize tasks from inbox scanner (pickupAll doesn't sanitize)
+          const source = task.sourceFile || "file_drop";
+          const trust = trustLevel(source);
+          if (trust === "external") {
+            const { data: clean, warnings, rejected, reason } = sanitizeTask(task as any, source);
+            if (rejected) {
+              console.warn(`[coordinator] Rejected inbox task ${task.id}: ${reason}`);
+              continue;
+            }
+            if (warnings.length > 0) {
+              console.warn(`[coordinator] Inbox task ${task.id} sanitization: ${warnings.join("; ")}`);
+            }
+            // Apply sanitized fields back to the task
+            Object.assign(task, clean);
+          }
+          this.submitTask(task, source);
         }
       } catch (e) { console.error("[coordinator] scan error:", e); }
     }, 3000);

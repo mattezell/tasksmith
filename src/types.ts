@@ -189,7 +189,7 @@ export interface TaskSmithConfig {
   fileSharing: ProviderEntry[];
   scheduling: {
     provider: string;
-    tasks: Array<{ name: string; schedule: string; template: string; params: Record<string, unknown>; enabled: boolean }>;
+    tasks: Array<{ name: string; cron: string; template: string; prompt: string; params?: Record<string, unknown>; model?: string; priority?: string; project?: string; enabled: boolean }>;
   };
   taskDefaults: {
     maxIterations: number;

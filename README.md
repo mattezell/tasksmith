@@ -4,7 +4,7 @@ Lightweight agent orchestration built on [Claude Code](https://docs.anthropic.co
 
 Drop a task file. Walk away. Come back to passing tests.
 
-TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Chain tasks with dependency DAGs. Expose everything via MCP so agents can submit tasks to other agents. Schedule recurring tasks with cron. Under 8,000 lines of core TypeScript. 9 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
+TaskSmith compiles your project context, coding conventions, and memory into every Claude Code invocation. It validates output, retries on failure, and pings your phone when it's done. Run tasks in parallel with git worktree isolation — each task gets its own branch, auto-opens a PR on success. Chain tasks with dependency DAGs. Expose everything via MCP so agents can submit tasks to other agents. Schedule recurring tasks with cron. Under 8,000 lines of core TypeScript. 8 bundled plugins. Zero frameworks. Every module fits in your head. MIT licensed.
 
 ```bash
 npm install -g tasksmith-cli
@@ -531,15 +531,16 @@ tasksmith dag --list         # List active DAGs
 tasksmith dag --status <id>  # Check DAG status
 tasksmith dag --graph <id>   # Output Mermaid flowchart
 tasksmith mcp                # Start MCP server (stdio transport)
-tasksmith plugin list        # List bundled + community plugins
-tasksmith plugin create <n>  # Scaffold a new plugin
-tasksmith metrics            # Task execution stats + cost tracking (metrics plugin)
-tasksmith insights           # Analyze task history for patterns (metrics plugin)
-tasksmith docker             # Container status (docker plugin)
-tasksmith pg                 # Query task history (postgres plugin)
-tasksmith proxmox            # VM status (proxmox plugin)
-tasksmith cf                 # Cloudflare: deploy, status, rollback (cloudflare plugin)
-tasksmith semantic           # Semantic memory search (semantic-memory plugin)
+tasksmith plugin list           # List bundled + community plugins
+tasksmith plugin create <n>    # Scaffold a new plugin
+tasksmith plugin run <name>    # Run a plugin command
+tasksmith metrics              # Task execution stats + cost tracking
+tasksmith insights             # Analyze task history for patterns
+tasksmith plugin run docker    # Container status (docker plugin)
+tasksmith plugin run pg        # Query task history (postgres plugin)
+tasksmith plugin run proxmox   # VM status (proxmox plugin)
+tasksmith plugin run cf        # Cloudflare: deploy, status, rollback (cloudflare plugin)
+tasksmith plugin run semantic  # Semantic memory search (semantic-memory plugin)
 ```
 
 ### Submit Options
@@ -684,6 +685,12 @@ curl -H "Authorization: Bearer your-token-here" http://localhost:8420/tasks?stat
 
 # Health check (no auth required)
 curl http://localhost:8420/health
+
+# Approval workflow
+curl -H "Authorization: Bearer your-token-here" http://localhost:8420/tasks/pending
+curl -X POST -H "Authorization: Bearer your-token-here" http://localhost:8420/tasks/task-123/approve
+curl -X POST -H "Authorization: Bearer your-token-here" -H "Content-Type: application/json" \
+  -d '{"reason": "Not ready"}' http://localhost:8420/tasks/task-123/reject
 ```
 
 ---
@@ -911,7 +918,7 @@ This means you can run the engine in `supervised` mode but submit individual tas
 │ Inbound  │ Worker    │    Outbound       │
 │ file_drop│  Pool     │ discord_webhook   │
 │ discord  │  ┌──────┐ │ ntfy, slack       │
-│ rest_api │  │Engine│ │ email, sms        │
+│ rest_api │  │Engine│ │ email, webhook     │
 │ mcp      │  │ × N  │ │ webhook           │
 │ watched  │  └──────┘ │                   │
 │          │ Worktree  │                   │
@@ -937,25 +944,25 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
-├── engine.ts            ~1,050 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing
-├── cli.ts                ~960 lines   Commander CLI (submit, dag, metrics, insights, workers, etc.)
-├── mcp.ts                ~700 lines   MCP server (stdio), 13 tools, 4 resources
-├── plugins.ts            ~566 lines   Plugin loader, lifecycle hooks, scaffolding
-├── coordinator.ts        ~547 lines   Wires providers + engine + pool + plugins + DAG
-├── dag.ts                ~450 lines   Task DAG: dependency resolution, cycle detection, Mermaid export
-├── sanitize.ts           ~375 lines   Input sanitization: trust levels, allowlist validation
-├── config.ts             ~324 lines   Workspace resolution, config layering
-├── api.ts                ~255 lines   REST API server (Fastify) — auth + rate limiting
-├── onboarding.ts         ~251 lines   Simplified setup wizard
-├── scheduler.ts          ~237 lines   Cron-based task scheduling
-├── types.ts              ~203 lines   Interfaces, provider contracts
-├── pool.ts               ~138 lines   Worker pool, concurrency limiter
-├── index.ts               ~13 lines   Package exports
+├── engine.ts           ~1,050 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing
+├── cli.ts              ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
+├── mcp.ts                ~700 lines  MCP server (stdio), 13 tools, 4+ resource types
+├── coordinator.ts        ~700 lines  Wires providers + engine + pool + plugins + DAG
+├── plugins.ts            ~566 lines  Plugin loader, lifecycle hooks, scaffolding
+├── dag.ts                ~450 lines  Task DAG: dependency resolution, cycle detection, Mermaid export
+├── sanitize.ts           ~375 lines  Input sanitization: trust levels, allowlist validation
+├── config.ts             ~325 lines  Workspace resolution, config layering
+├── api.ts                ~300 lines  REST API server (Fastify) — auth + rate limiting + approval
+├── onboarding.ts         ~251 lines  Simplified setup wizard
+├── scheduler.ts          ~237 lines  Cron-based task scheduling
+├── types.ts              ~203 lines  Interfaces, provider contracts
+├── pool.ts               ~138 lines  Worker pool, concurrency limiter
+├── index.ts               ~13 lines  Package exports
 ├── providers/
-│   ├── comms/            ~770 lines   5 outbound + 5 inbound providers (+ GitHub webhook, Slack Events)
-│   └── memory/           ~241 lines   Markdown, JSONL, compressed archives
+│   ├── comms/            ~790 lines  5 outbound + 7 inbound providers
+│   └── memory/           ~241 lines  Markdown, JSONL, compressed archives
 └── plugins/bundled/
-    ├── index.ts           ~92 lines   Lazy-load registry
+    ├── index.ts           ~86 lines  Lazy-load registry
     ├── metrics.ts        ~545 lines   Execution analytics, cost tracking, insights engine
     ├── cloudflare.ts     ~487 lines   Cloudflare Pages deployments
     ├── semantic-memory.ts ~451 lines  Vector-based semantic search
