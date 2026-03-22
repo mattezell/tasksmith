@@ -20,9 +20,9 @@ Memory: hot (MEMORY.md) → warm (JSONL) → cold (gzipped archives)
 
 ```
 src/
-├── engine.ts          ~1,260 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing, JSONL task log
+├── engine.ts          ~1,400 lines  Task lifecycle, Ralph Loop, circuit breaker, smart routing, JSONL task log
 ├── mcp.ts             ~700 lines    MCP server (13 tools, 4+ resource types)
-├── cli.ts             ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
+├── cli.ts             ~1,535 lines  Commander CLI (submit, dag, metrics, insights, costs, workers, etc.)
 ├── plugins.ts         ~566 lines    Plugin loader, lifecycle hooks
 ├── coordinator.ts     ~765 lines    Wires providers + engine + pool + plugins + DAG
 ├── dag.ts             ~450 lines    Task DAG — dependency workflows, cycle detection, Mermaid export
@@ -31,7 +31,7 @@ src/
 ├── api.ts             ~355 lines    REST API server (Fastify) — auth + rate limiting + approval
 ├── onboarding.ts      ~251 lines    Simplified setup wizard
 ├── scheduler.ts       ~247 lines    Cron-based task scheduling (daemon-level, not session-scoped)
-├── types.ts           ~209 lines    Interfaces, provider contracts
+├── types.ts           ~218 lines    Interfaces, provider contracts
 ├── pool.ts            ~139 lines    Worker pool, concurrency limiter
 ├── index.ts           ~13 lines     Package exports
 ├── providers/
@@ -71,7 +71,7 @@ npm run dev            # tsc --watch
 
 ## Current Version
 
-v1.0.1 — audit fixes, skill discovery, worktree isolation, approval sync, projectsDir, DAG ordering. See CHANGELOG.md for full details.
+v1.0.1 — audit fixes, CC integration (`cc-install`), cost dashboard (`costs`), skill injection, budget alerts, dogfood batch fixes. See CHANGELOG.md for full details.
 
 ## Known Debt
 

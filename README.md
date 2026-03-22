@@ -1063,18 +1063,18 @@ This means you can run the engine in `supervised` mode but submit individual tas
 
 ```
 src/
-├── engine.ts           ~1,260 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, JSONL task log
-├── cli.ts              ~1,020 lines  Commander CLI (submit, dag, metrics, insights, workers, etc.)
+├── engine.ts           ~1,400 lines  Task lifecycle, Ralph Loop, circuit breaker, smart model routing, JSONL task log
+├── cli.ts              ~1,535 lines  Commander CLI (submit, dag, metrics, insights, costs, workers, etc.)
 ├── mcp.ts                ~700 lines  MCP server (stdio), 13 tools, 4+ resource types
 ├── coordinator.ts        ~765 lines  Wires providers + engine + pool + plugins + DAG
 ├── plugins.ts            ~566 lines  Plugin loader, lifecycle hooks, scaffolding
 ├── dag.ts                ~450 lines  Task DAG: dependency resolution, cycle detection, Mermaid export
 ├── sanitize.ts           ~375 lines  Input sanitization: trust levels, allowlist validation
-├── config.ts             ~355 lines  Workspace resolution, config layering, skill installation
+├── config.ts             ~360 lines  Workspace resolution, config layering, skill installation
 ├── api.ts                ~355 lines  REST API server (Fastify) — auth + rate limiting + approval
 ├── onboarding.ts         ~251 lines  Simplified setup wizard
 ├── scheduler.ts          ~247 lines  Cron-based task scheduling
-├── types.ts              ~209 lines  Interfaces, provider contracts
+├── types.ts              ~218 lines  Interfaces, provider contracts
 ├── pool.ts               ~138 lines  Worker pool, concurrency limiter
 ├── index.ts               ~13 lines  Package exports
 ├── providers/
