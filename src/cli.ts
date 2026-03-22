@@ -1177,6 +1177,7 @@ program
     const days = opts.days ? parseInt(opts.days) || 0 : 0;
     const cutoff = days > 0 ? Date.now() - days * 86400000 : 0;
 
+    type IterCost = { model: string; cost: number };
     type TaskRecord = {
       taskId: string;
       template: string;
@@ -1186,9 +1187,12 @@ program
       totalCostUsd: number;
       iterationsUsed: number;
       ts: string;
+      iterCosts: IterCost[];
     };
 
     const records: TaskRecord[] = [];
+    // Per-iteration model→cost mapping for accurate model attribution
+    const modelCosts: Record<string, number> = {};
 
     let files: string[];
     try {
@@ -1202,6 +1206,8 @@ program
       const filePath = join(logsDir, file);
       let startEvent: Record<string, any> | null = null;
       let endEvent: Record<string, any> | null = null;
+      const iterModels: Record<number, string> = {};  // iter → model from iter_start
+      const iterCosts: IterCost[] = [];               // per-iteration model+cost
 
       try {
         const lines = readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
@@ -1210,6 +1216,13 @@ program
             const entry = JSON.parse(line);
             if (entry.event === "task_start") startEvent = entry;
             if (entry.event === "task_end") endEvent = entry;
+            if (entry.event === "iter_start" && entry.iter && entry.model) {
+              iterModels[entry.iter] = entry.model;
+            }
+            if (entry.event === "cc_complete" && typeof entry.cost === "number") {
+              const model = iterModels[entry.iter] || startEvent?.model || "unknown";
+              iterCosts.push({ model, cost: entry.cost });
+            }
           } catch {
             // skip malformed lines
           }
@@ -1225,15 +1238,26 @@ program
         if (ts < cutoff) continue;
       }
 
+      // Accumulate per-iteration costs into global model cost map
+      for (const ic of iterCosts) {
+        modelCosts[ic.model] = (modelCosts[ic.model] || 0) + ic.cost;
+      }
+
+      // Primary model = model with highest cost for this task (for display)
+      const primaryModel = iterCosts.length > 0
+        ? iterCosts.reduce((best, ic) => ic.cost > best.cost ? ic : best, iterCosts[0]).model
+        : startEvent?.model || "unknown";
+
       records.push({
         taskId: endEvent.task || file.replace(".jsonl", ""),
         template: startEvent?.template || "",
-        model: startEvent?.model || endEvent.model || "",
+        model: primaryModel,
         project: startEvent?.project || endEvent.project || "",
         status: endEvent.status || "",
         totalCostUsd: endEvent.total_cost_usd || 0,
         iterationsUsed: endEvent.iterations_used || 0,
         ts: endEvent.ts || "",
+        iterCosts,
       });
     }
 
@@ -1257,20 +1281,28 @@ program
     console.log(`    Tasks:           ${chalk.bold(String(records.length))}`);
     console.log(`    Avg cost/task:   ${chalk.yellow("$" + avgCost.toFixed(4))}`);
 
-    // By model
-    const byModel: Record<string, { tasks: number; totalCost: number }> = {};
+    // By model — uses per-iteration cost attribution (not task-level model)
+    // Count tasks per model: a task counts toward each model it used
+    const modelTaskCounts: Record<string, Set<string>> = {};
     for (const r of records) {
-      const key = r.model || "unknown";
-      (byModel[key] ||= { tasks: 0, totalCost: 0 }).tasks++;
-      byModel[key].totalCost += r.totalCostUsd;
+      if (r.iterCosts.length > 0) {
+        for (const ic of r.iterCosts) {
+          (modelTaskCounts[ic.model] ||= new Set()).add(r.taskId);
+        }
+      } else {
+        // Fallback for logs without iter data
+        (modelTaskCounts[r.model || "unknown"] ||= new Set()).add(r.taskId);
+        modelCosts[r.model || "unknown"] = (modelCosts[r.model || "unknown"] || 0) + r.totalCostUsd;
+      }
     }
-    if (Object.keys(byModel).length > 0) {
+    if (Object.keys(modelCosts).length > 0) {
       console.log(chalk.bold(`\n  By Model\n`));
-      console.log(`    ${"Model".padEnd(20)} ${"Tasks".padStart(6)}  ${"Total Cost".padStart(12)}  ${"Avg Cost".padStart(10)}`);
+      console.log(`    ${"Model".padEnd(20)} ${"Iters".padStart(6)}  ${"Total Cost".padStart(12)}  ${"Avg Cost".padStart(10)}`);
       console.log(`    ${"─".repeat(54)}`);
-      for (const [model, s] of Object.entries(byModel).sort((a, b) => b[1].totalCost - a[1].totalCost)) {
-        const avg = s.totalCost / s.tasks;
-        console.log(`    ${model.padEnd(20)} ${String(s.tasks).padStart(6)}  ${chalk.yellow(("$" + s.totalCost.toFixed(4)).padStart(12))}  ${chalk.dim(("$" + avg.toFixed(4)).padStart(10))}`);
+      for (const [model, cost] of Object.entries(modelCosts).sort((a, b) => b[1] - a[1])) {
+        const taskCount = modelTaskCounts[model]?.size || 0;
+        const avg = taskCount > 0 ? cost / taskCount : cost;
+        console.log(`    ${model.padEnd(20)} ${String(taskCount).padStart(6)}  ${chalk.yellow(("$" + cost.toFixed(4)).padStart(12))}  ${chalk.dim(("$" + avg.toFixed(4)).padStart(10))}`);
       }
     }
 
