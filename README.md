@@ -1,5 +1,8 @@
 # TaskSmith
 
+> [!IMPORTANT]
+> **TaskSmith is retired and is no longer maintained.** Its orchestration responsibilities have moved to Hermes Agent's native Kanban, cron, webhooks, and verification ledger. Do not adopt TaskSmith for new work. See [Decision 0001: Retire TaskSmith in favor of Hermes Agent](docs/decisions/0001-retire-tasksmith.md).
+
 Lightweight agent orchestration built on [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI.
 
 Drop a task file. Walk away. Come back to passing tests.
